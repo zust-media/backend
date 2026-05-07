@@ -9,6 +9,7 @@ import { authenticate } from './middleware/auth.js';
 import { requireValidSig } from './utils/signing.js';
 import { serveImage } from './utils/thumbnail.js';
 import authRoutes from './routes/auth.js';
+import captchaRoutes from './routes/captcha.js';
 import imagesRoutes from './routes/images.js';
 import tagsRoutes from './routes/tags.js';
 import configRoutes from './routes/config.js';
@@ -32,6 +33,7 @@ app.use(express.json());
 app.use(authenticate);
 
 app.use('/api/auth', authRoutes);
+app.use('/api/auth', captchaRoutes);
 app.use('/api/images', imagesRoutes);
 app.use('/api/tags', tagsRoutes);
 app.use('/api/config', configRoutes);
