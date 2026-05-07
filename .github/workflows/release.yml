@@ -33,7 +33,7 @@ jobs:
         id: changelog
         run: |
           # 构建参数
-          ARGS="--tag ${{ github.event.inputs.version }}"
+          ARGS="--tag ${{ github.event.inputs.version }} --with-hash"
           if [ -n "${{ github.event.inputs.base_tag }}" ]; then
             ARGS="$ARGS --base ${{ github.event.inputs.base_tag }}"
           fi

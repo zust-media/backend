@@ -34,25 +34,16 @@ jobs:
         run: |
           # 生成下一个周快照版本号
           VERSION=$(node tools/weekly-snapshot.js)
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
           
           # 获取基础标签
-          BASE_TAG=$(node -e "
-            import('node:child_process').then(({ execSync }) => {
-              try {
-                const tags = execSync('git tag -l \"v*\" --sort=-creatordate', { encoding: 'utf-8' }).trim().split('\\n');
-                console.log(tags[0] || '');
-              } catch {
-                console.log('');
-              }
-            })
-          ")
+          BASE_TAG=$(node tools/weekly-snapshot.js --get-base-tag)
           
           # 如果手动指定了基础标签，使用手动指定的
           if [ -n "${{ github.event.inputs.base_tag }}" ]; then
             BASE_TAG="${{ github.event.inputs.base_tag }}"
           fi
           
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "base_tag=$BASE_TAG" >> $GITHUB_OUTPUT
           
           echo "周快照版本: $VERSION"
@@ -65,7 +56,7 @@ jobs:
           BASE_TAG=${{ steps.version.outputs.base_tag }}
           
           # 构建参数
-          ARGS="--tag $VERSION"
+          ARGS="--tag $VERSION --with-hash"
           if [ -n "$BASE_TAG" ]; then
             ARGS="$ARGS --base $BASE_TAG"
           fi

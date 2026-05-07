@@ -131,6 +131,13 @@ function getLastWeeklySnapshot() {
  */
 function main() {
   try {
+    // 如果只需要获取基础标签
+    if (process.argv.includes('--get-base-tag')) {
+      const baseTag = getBaseTag();
+      console.log(baseTag || '');
+      return;
+    }
+
     const nextVersion = generateNextSnapshotVersion();
     const baseTag = getBaseTag();
 
