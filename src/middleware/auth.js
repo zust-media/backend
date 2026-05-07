@@ -19,6 +19,7 @@ export function authenticate(req, res, next) {
     const decoded = jwt.verify(match[1], JWT_SECRET);
     req.user = {
       user_id: decoded.user_id,
+      uuid: decoded.uuid || '',
       username: decoded.username,
       role: decoded.role,
     };
