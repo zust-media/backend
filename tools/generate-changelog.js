@@ -185,9 +185,27 @@ function classifyCommits(commits, withCommitizen = false) {
   return result;
 }
 
+function getGitHubRepoUrl() {
+  try {
+    const remoteUrl = callCommand('git remote get-url origin');
+    if (!remoteUrl) return null;
+    
+    // 转换 git@github.com:owner/repo.git 或 https://github.com/owner/repo.git 格式
+    let repoPath = remoteUrl;
+    if (repoPath.startsWith('git@')) {
+      repoPath = repoPath.replace('git@github.com:', 'https://github.com/');
+    }
+    repoPath = repoPath.replace('.git', '');
+    return repoPath;
+  } catch {
+    return null;
+  }
+}
+
 function generateMd(data, tagName, latest, withHash = false) {
   const now = new Date().toLocaleDateString('zh-CN');
   const lines = [];
+  const repoUrl = getGitHubRepoUrl();
 
   // 标题
   if (tagName) {
@@ -196,7 +214,10 @@ function generateMd(data, tagName, latest, withHash = false) {
     lines.push(`## 📝 更新日志 (${now})`);
   }
 
-  if (latest) {
+  if (latest && repoUrl) {
+    const endTag = tagName || 'HEAD';
+    lines.push(`> [${latest}...${endTag}](${repoUrl}/compare/${latest}...${endTag})`);
+  } else if (latest) {
     lines.push(`> ${latest} ... HEAD`);
   }
   lines.push('');
@@ -211,7 +232,9 @@ function generateMd(data, tagName, latest, withHash = false) {
 
     for (const item of data[category]) {
       let line = `* ${item.message}`;
-      if (withHash) {
+      if (withHash && repoUrl) {
+        line += ` ([${item.hash}](${repoUrl}/commit/${item.hash}))`;
+      } else if (withHash) {
         line += ` (${item.hash})`;
       }
       lines.push(line);
