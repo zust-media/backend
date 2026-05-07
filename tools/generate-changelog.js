@@ -1,48 +1,260 @@
-// changelog-generator.js
+#!/usr/bin/env node
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const changelogPath = path.join(__dirname, '..', 'CHANGELOG.md');
+
+// 分类映射
 const typeMap = {
-  feat: '✨ 新功能',
-  fix: '🐞 修复问题',
-  refactor: '♻️ 重构优化',
-  docs: '📚 文档变更',
-  chore: '🔧 其他修改',
+  feat: '新增 | New',
+  fix: '修复 | Fix',
+  refactor: '改进 | Improved',
+  perf: '改进 | Improved',
+  rft: '改进 | Improved',
+  docs: '文档 | Docs',
+  doc: '文档 | Docs',
+  style: '其他 | Other',
+  build: '其他 | Other',
+  ci: '其他 | Other',
+  test: '其他 | Other',
+  chore: '其他 | Other',
 };
 
-function getCommits() {
-  return execSync('git log --pretty=format:"%s"').toString().split('\n');
+// 中文关键词映射
+const chineseKeywords = {
+  '新增': '新增 | New',
+  '修复': '修复 | Fix',
+  '更新': '改进 | Improved',
+  '改进': '改进 | Improved',
+  '优化': '改进 | Improved',
+  '重构': '改进 | Improved',
+  '文档': '文档 | Docs',
+};
+
+// 忽略的前缀
+const IGNORE_PREFIXES = /^(?:build|ci|style|debug)\s*(?:\([^)]*\))*:\s*/;
+
+function parseArgs() {
+  const args = process.argv.slice(2);
+  let tagName = null;
+  let latest = null;
+  let withHash = false;
+  let withCommitizen = false;
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--tag' || arg === '-t') {
+      tagName = args[++i];
+    } else if (arg === '--base' || arg === '--latest' || arg === '-b') {
+      latest = args[++i];
+    } else if (arg === '-wh' || arg === '--with-hash') {
+      withHash = true;
+    } else if (arg === '-wc' || arg === '--with-commitizen') {
+      withCommitizen = true;
+    } else if (arg === '--help' || arg === '-h') {
+      console.log(`
+用法: node generate-changelog.js [选项]
+
+选项:
+  --tag, -t <标签>      指定发布标签名称
+  --base, --latest, -b <标签>  指定基础标签
+  -wh, --with-hash      显示提交哈希
+  -wc, --with-commitizen  保留 commitizen 前缀
+  -h, --help            显示帮助信息
+      `);
+      process.exit(0);
+    }
+  }
+
+  return { tagName, latest, withHash, withCommitizen };
 }
 
-function classify(commits) {
-  const result = {};
-  for (let line of commits) {
-    const match = line.match(/^(\w+):\s*(.+)/);
-    if (!match) continue;
-    const [, type, msg] = match;
-    const title = typeMap[type] || '📦 其他';
-    if (!result[title]) result[title] = [];
-    result[title].push(`- ${msg}`);
+function callCommand(command) {
+  try {
+    return execSync(command, { encoding: 'utf-8' }).trim();
+  } catch (e) {
+    try {
+      return execSync(command, { encoding: 'gbk' }).trim();
+    } catch {
+      return '';
+    }
   }
+}
+
+function getLatestTag() {
+  try {
+    return callCommand('git describe --tags --match "v*" --abbrev=0');
+  } catch {
+    return null;
+  }
+}
+
+function getCurrentTag() {
+  try {
+    return callCommand('git describe --tags --match "v*"');
+  } catch {
+    return null;
+  }
+}
+
+function parseCategory(message) {
+  // 检查忽略前缀
+  if (IGNORE_PREFIXES.test(message)) {
+    return null;
+  }
+
+  // 检查 commitizen 前缀
+  const m = message.match(/^(?<prefix>\w+)(?:\([\w\-]+\))?:\s*/);
+  if (m) {
+    const prefix = m.groups.prefix.toLowerCase();
+    return typeMap[prefix] || '其他 | Other';
+  }
+
+  // 检查中文关键词
+  for (const [keyword, category] of Object.entries(chineseKeywords)) {
+    if (message.includes(keyword)) {
+      return category;
+    }
+  }
+
+  return '其他 | Other';
+}
+
+function getCommits(latest = null) {
+  let gitCommand;
+  if (latest) {
+    gitCommand = `git log ${latest}..HEAD --pretty=format:"%H%n%aN%n%s"`;
+  } else {
+    gitCommand = 'git log --pretty=format:"%H%n%aN%n%s" -n 50';
+  }
+
+  const output = callCommand(gitCommand);
+  if (!output) return [];
+
+  const commits = [];
+  const lines = output.split('\n');
+
+  for (let i = 0; i < lines.length; i += 3) {
+    if (i + 2 >= lines.length) break;
+    commits.push({
+      hash: lines[i],
+      author: lines[i + 1],
+      message: lines[i + 2],
+    });
+  }
+
+  return commits;
+}
+
+function classifyCommits(commits, withCommitizen = false) {
+  const result = {
+    '新增 | New': [],
+    '修复 | Fix': [],
+    '改进 | Improved': [],
+    '文档 | Docs': [],
+    '其他 | Other': [],
+  };
+
+  for (const commit of commits) {
+    if (commit.message.includes('[skip changelog]')) continue;
+
+    const category = parseCategory(commit.message);
+    if (!category) continue;
+
+    let message = commit.message;
+
+    // 剥掉 commitizen 前缀
+    if (!withCommitizen) {
+      message = message.replace(/^(?<prefix>\w+)(?:\([\w\-]+\))?:\s*/, '');
+    }
+
+    result[category].push({
+      message,
+      author: commit.author,
+      hash: commit.hash.slice(0, 8),
+    });
+  }
+
   return result;
 }
 
-function generateMd(data) {
-  const now = new Date().toLocaleDateString();
-  const lines = [`## 📝 更新日志 (${now})\n`];
-  for (const [title, items] of Object.entries(data)) {
-    lines.push(`### ${title}`);
-    lines.push(...items, '');
+function generateMd(data, tagName, latest, withHash = false) {
+  const now = new Date().toLocaleDateString('zh-CN');
+  const lines = [];
+
+  // 标题
+  if (tagName) {
+    lines.push(`## ${tagName}`);
+  } else {
+    lines.push(`## 📝 更新日志 (${now})`);
   }
+
+  if (latest) {
+    lines.push(`> ${latest} ... HEAD`);
+  }
+  lines.push('');
+
+  // 按分类顺序输出
+  const order = ['新增 | New', '修复 | Fix', '改进 | Improved', '文档 | Docs', '其他 | Other'];
+  for (const category of order) {
+    if (data[category].length === 0) continue;
+
+    lines.push(`### ${category}`);
+    lines.push('');
+
+    for (const item of data[category]) {
+      let line = `* ${item.message}`;
+      if (withHash) {
+        line += ` (${item.hash})`;
+      }
+      lines.push(line);
+    }
+
+    lines.push('');
+  }
+
   return lines.join('\n');
 }
 
-function writeToFile(content) {
-  fs.appendFileSync('CHANGELOG.md', '\n' + content);
+function writeToFile(content, append = false) {
+  if (append) {
+    fs.appendFileSync(changelogPath, '\n' + content, 'utf8');
+  } else {
+    fs.writeFileSync(changelogPath, content, 'utf8');
+  }
 }
 
-const commits = getCommits();
-const grouped = classify(commits);
-const markdown = generateMd(grouped);
-writeToFile(markdown);
-console.log('✅ Changelog updated.');
+function main() {
+  const { tagName, latest, withHash, withCommitizen } = parseArgs();
+
+  const resolvedLatest = latest || getLatestTag();
+  const resolvedTagName = tagName || getCurrentTag();
+
+  console.log('📊 正在生成变更日志...');
+  if (resolvedLatest) {
+    console.log(`📌 从: ${resolvedLatest}`);
+  }
+  if (resolvedTagName) {
+    console.log(`🏷️  到: ${resolvedTagName}`);
+  }
+  console.log('');
+
+  const commits = getCommits(resolvedLatest);
+  if (commits.length === 0) {
+    console.log('⚠️  没有找到提交记录');
+    return;
+  }
+
+  const grouped = classifyCommits(commits, withCommitizen);
+  const markdown = generateMd(grouped, resolvedTagName, resolvedLatest, withHash);
+
+  writeToFile(markdown, !!resolvedLatest);
+
+  console.log('✅ 变更日志已更新: CHANGELOG.md');
+  console.log('\n' + markdown);
+}
+
+main();
