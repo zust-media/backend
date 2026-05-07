@@ -78,10 +78,10 @@ function parseArgs() {
 
 function callCommand(command) {
   try {
-    return execSync(command, { encoding: 'utf-8' }).trim();
+    return execSync(command, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
   } catch (e) {
     try {
-      return execSync(command, { encoding: 'gbk' }).trim();
+      return execSync(command, { encoding: 'gbk', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
     } catch {
       return '';
     }
