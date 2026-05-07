@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Database (keep directory, ignore contents)
+data/*
+!data/.gitkeep
+
+# Uploads (keep directory, ignore contents)
+uploads/*
+!uploads/.gitkeep
+
+public/*
+!public/.gitkeep
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# pnpm
+.pnpm-store/
