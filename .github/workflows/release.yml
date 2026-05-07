@@ -29,13 +29,46 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Get base tag
+        id: get-base-tag
+        run: |
+          # 如果手动指定了基础标签，使用手动指定的
+          if [ -n "${{ github.event.inputs.base_tag }}" ]; then
+            BASE_TAG="${{ github.event.inputs.base_tag }}"
+          else
+            # 获取最新发布的任何类型的 tag（无论是 Pre Release、Release 还是每周快照）
+            BASE_TAG=$(git tag -l --sort=-creatordate | head -n 1)
+          fi
+          
+          echo "base_tag=$BASE_TAG" >> $GITHUB_OUTPUT
+          echo "使用基础标签: ${BASE_TAG:-无}"
+          
+          # 检查是否有提交
+          if [ -n "$BASE_TAG" ]; then
+            COMMIT_COUNT=$(git rev-list --count $BASE_TAG..HEAD)
+          else
+            # 如果没有标签，检查所有提交
+            COMMIT_COUNT=$(git rev-list --count HEAD)
+          fi
+          
+          echo "commit_count=$COMMIT_COUNT" >> $GITHUB_OUTPUT
+          echo "新提交数量: $COMMIT_COUNT"
+          
+          if [ "$COMMIT_COUNT" -eq 0 ]; then
+            echo "没有新的提交，取消发布"
+            echo "skip_release=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip_release=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Generate changelog
         id: changelog
+        if: steps.get-base-tag.outputs.skip_release == 'false'
         run: |
           # 构建参数
           ARGS="--tag ${{ github.event.inputs.version }} --with-hash"
-          if [ -n "${{ github.event.inputs.base_tag }}" ]; then
-            ARGS="$ARGS --base ${{ github.event.inputs.base_tag }}"
+          if [ -n "${{ steps.get-base-tag.outputs.base_tag }}" ]; then
+            ARGS="$ARGS --base ${{ steps.get-base-tag.outputs.base_tag }}"
           fi
           
           # 运行 changelog 生成器
@@ -49,7 +82,14 @@ jobs:
           # 显示输出用于调试
           echo "$CHANGELOG_CONTENT"
 
+      - name: Cancel release if no commits
+        if: steps.get-base-tag.outputs.skip_release == 'true'
+        run: |
+          echo "没有新的提交，取消发布"
+          exit 1
+
       - name: Create Release
+        if: steps.get-base-tag.outputs.skip_release == 'false'
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.event.inputs.version }}
@@ -61,6 +101,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Update package.json version
+        if: steps.get-base-tag.outputs.skip_release == 'false'
         run: |
           # 创建临时脚本更新版本
           cat > update-version.js << 'EOF'
@@ -79,6 +120,7 @@ jobs:
           rm update-version.js
 
       - name: Commit version update
+        if: steps.get-base-tag.outputs.skip_release == 'false'
         run: |
           git config user.name "GitHub Action"
           git config user.email "action@github.com"

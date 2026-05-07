@@ -25,3 +25,21 @@
 * update version to 26w19 (0688977c)
 * 更新项目依赖与开发工具 (f3bf99ae)
 * 修复了CHANGELOG生成器 (fd75e6e6)
+
+## v1.0.0
+> [5581fb8d...v1.0.0](https://github.com/zust-media/backend/compare/5581fb8d...v1.0.0)
+
+### 新增 | New
+
+* 在 CHANGELOG 中显示 COMMIT HASH ([3bbfe382](https://github.com/zust-media/backend/commit/3bbfe382))
+* 添加每周快照发布功能 ([babd906f](https://github.com/zust-media/backend/commit/babd906f))
+
+### 修复 | Fix
+
+* 修复GitHub Action获取周快照基础标签的问题 ([aab57985](https://github.com/zust-media/backend/commit/aab57985))
+* 修复了每周快照 CHANGELOG 增量识别错误的问题 ([721b2a99](https://github.com/zust-media/backend/commit/721b2a99))
+* 修复周快照发布changelog重复问题 ([2bd63851](https://github.com/zust-media/backend/commit/2bd63851))
+
+### 其他 | Other
+
+* update version to 26w19 ([0688977c](https://github.com/zust-media/backend/commit/0688977c))
