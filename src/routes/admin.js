@@ -17,10 +17,69 @@ const router = Router();
  *   get:
  *     tags: [Admin]
  *     summary: 站点统计数据
+ *     description: 获取站点总体统计数据，包括用户数、图片数、存储空间、最近上传和上传排行
  *     security: [{ bearerAuth: [] }]
  *     responses:
- *       200: { description: 统计数据 }
- *       403: { description: 非管理员 }
+ *       200:
+ *         description: 统计数据
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 totalUsers:
+ *                   type: integer
+ *                   description: 用户总数
+ *                 totalImages:
+ *                   type: integer
+ *                   description: 图片总数
+ *                 totalCategories:
+ *                   type: integer
+ *                   description: 分类总数
+ *                 totalTags:
+ *                   type: integer
+ *                   description: 标签总数
+ *                 totalSize:
+ *                   type: integer
+ *                   description: 已用存储空间（字节）
+ *                 duplicateCount:
+ *                   type: integer
+ *                   description: 重复图片数量
+ *                 recentImages:
+ *                   type: array
+ *                   description: 最近5张上传的图片
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id: { type: integer }
+ *                       uuid: { type: string }
+ *                       title: { type: string }
+ *                       original_name: { type: string }
+ *                       file_size: { type: integer }
+ *                       created_at: { type: string, format: date-time }
+ *                       uploader_uuid: { type: string }
+ *                 topUploaders:
+ *                   type: array
+ *                   description: 上传排行榜（前5名）
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       uuid: { type: string }
+ *                       nickname: { type: string }
+ *                       role: { type: string }
+ *                       cnt: { type: integer, description: '上传数量' }
+ *       401:
+ *         description: 未登录
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ *       403:
+ *         description: 非管理员
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
  */
 router.get('/stats', requireAdmin, (_req, res) => {
   const totalUsers = db.prepare('SELECT COUNT(*) as cnt FROM users').get().cnt;
@@ -29,15 +88,16 @@ router.get('/stats', requireAdmin, (_req, res) => {
   const totalTags = db.prepare('SELECT COUNT(*) as cnt FROM tags').get().cnt;
 
   const totalSize = db.prepare('SELECT SUM(file_size) as total FROM images').get().total || 0;
+  const duplicateCount = db.prepare('SELECT COUNT(*) as cnt FROM images WHERE is_duplicate = 1').get().cnt;
 
   const recentImages = db.prepare(`
-    SELECT i.id, i.title, i.original_name, i.file_size, i.created_at, u.username
+    SELECT i.id, i.uuid, i.title, i.original_name, i.file_size, i.created_at, u.uuid as uploader_uuid
     FROM images i JOIN users u ON i.user_id = u.id
     ORDER BY i.created_at DESC LIMIT 5
   `).all();
 
   const topUploaders = db.prepare(`
-    SELECT u.username, u.role, COUNT(i.id) as cnt
+    SELECT u.uuid, u.nickname, u.role, COUNT(i.id) as cnt
     FROM users u LEFT JOIN images i ON i.user_id = u.id
     GROUP BY u.id ORDER BY cnt DESC LIMIT 5
   `).all();
@@ -48,8 +108,53 @@ router.get('/stats', requireAdmin, (_req, res) => {
     totalCategories,
     totalTags,
     totalSize,
+    duplicateCount,
     recentImages,
     topUploaders,
+  });
+});
+
+router.get('/logs', requireAdmin, (req, res) => {
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 50));
+  const actionFilter = (req.query.action || '').trim();
+  const offset = (page - 1) * limit;
+
+  let whereClause = '';
+  const params = [];
+  if (actionFilter) {
+    whereClause = 'WHERE a.action = ?';
+    params.push(actionFilter);
+  }
+
+  const countRow = db.prepare(`SELECT COUNT(*) as total FROM activity_log a ${whereClause}`).get(...params);
+  const total = countRow ? countRow.total : 0;
+
+  const logs = db.prepare(`
+    SELECT a.uuid, a.operator, a.action, a.data, a.created_at, u.username, u.nickname
+    FROM activity_log a
+    LEFT JOIN users u ON a.operator = u.uuid
+    ${whereClause}
+    ORDER BY a.created_at DESC
+    LIMIT ? OFFSET ?
+  `).all(...params, limit, offset);
+
+  const formatted = logs.map((row) => ({
+    uuid: row.uuid,
+    operator_uuid: row.operator,
+    operator_username: row.username || 'unknown',
+    operator_nickname: row.nickname || '',
+    action: row.action,
+    data: JSON.parse(row.data || '{}'),
+    created_at: row.created_at,
+  }));
+
+  const actions = db.prepare('SELECT DISTINCT action FROM activity_log ORDER BY action').all().map(r => r.action);
+
+  res.json({
+    logs: formatted,
+    actions,
+    pagination: { page, limit, total, total_pages: Math.ceil(total / limit) || 1 },
   });
 });
 

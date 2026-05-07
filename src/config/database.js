@@ -93,6 +93,7 @@ if (!hasUuidCol) {
 try { db.exec('ALTER TABLE users ADD COLUMN uuid TEXT'); } catch { /* already exists */ }
 try { db.exec('ALTER TABLE users ADD COLUMN slug TEXT'); } catch { /* already exists */ }
 try { db.exec('ALTER TABLE users ADD COLUMN bio TEXT DEFAULT \'\''); } catch { /* already exists */ }
+try { db.exec('ALTER TABLE users ADD COLUMN nickname TEXT DEFAULT \'\''); } catch { /* already exists */ }
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS categories (
@@ -105,6 +106,12 @@ db.exec(`
 `);
 
 try { db.exec('ALTER TABLE images ADD COLUMN category_id INTEGER DEFAULT NULL REFERENCES categories(id) ON DELETE SET NULL'); } catch { /* already exists */ }
+
+try { db.exec('ALTER TABLE images ADD COLUMN file_hash TEXT DEFAULT \'\''); } catch { /* already exists */ }
+try { db.exec('ALTER TABLE images ADD COLUMN is_duplicate INTEGER DEFAULT 0'); } catch { /* already exists */ }
+try { db.exec('ALTER TABLE images ADD COLUMN duplicate_of INTEGER DEFAULT NULL'); } catch { /* already exists */ }
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_images_file_hash ON images(file_hash)'); } catch { /* already exists */ }
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_images_duplicate_of ON images(duplicate_of)'); } catch { /* already exists */ }
 
 {
   const hasDefaultCat = db.prepare('SELECT id FROM categories WHERE slug = ?').get('uncategorized');
@@ -133,6 +140,19 @@ try { db.exec('ALTER TABLE images ADD COLUMN category_id INTEGER DEFAULT NULL RE
     stmtBackfill.run(crypto.randomUUID(), row.id);
   }
 }
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS activity_log (
+    uuid TEXT PRIMARY KEY,
+    operator TEXT NOT NULL,
+    action TEXT NOT NULL,
+    data TEXT NOT NULL DEFAULT '{}',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_logs_action ON activity_log(action)'); } catch { /* already exists */ }
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_logs_created_at ON activity_log(created_at)'); } catch { /* already exists */ }
 
 if (isNew) {
   const insertUser = db.prepare(
