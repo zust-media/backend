@@ -1,0 +1,87 @@
+name: Create Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号 (例如: v1.0.0)'
+        required: true
+        type: string
+      base_tag:
+        description: '基础标签 (可选，默认为上一个标签)'
+        required: false
+        type: string
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # 构建参数
+          ARGS="--tag ${{ github.event.inputs.version }}"
+          if [ -n "${{ github.event.inputs.base_tag }}" ]; then
+            ARGS="$ARGS --base ${{ github.event.inputs.base_tag }}"
+          fi
+          
+          # 运行 changelog 生成器
+          CHANGELOG_CONTENT=$(node tools/generate-changelog.js $ARGS --output-only)
+          
+          # 保存到环境变量，使用 GITHUB_OUTPUT 方式
+          echo "changelog_content<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG_CONTENT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          # 显示输出用于调试
+          echo "$CHANGELOG_CONTENT"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.event.inputs.version }}
+          name: Release ${{ github.event.inputs.version }}
+          body: ${{ steps.changelog.outputs.changelog_content }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update package.json version
+        run: |
+          # 创建临时脚本更新版本
+          cat > update-version.js << 'EOF'
+          import fs from 'fs';
+          import path from 'path';
+          import { fileURLToPath } from 'url';
+          
+          const __dirname = path.dirname(fileURLToPath(import.meta.url));
+          const pkgPath = path.join(__dirname, 'package.json');
+          const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+          pkg.version = process.argv[2].replace(/^v/, '');
+          fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
+          EOF
+          
+          node update-version.js "${{ github.event.inputs.version }}"
+          rm update-version.js
+
+      - name: Commit version update
+        run: |
+          git config user.name "GitHub Action"
+          git config user.email "action@github.com"
+          git add package.json CHANGELOG.md
+          git commit -m "chore: update version to ${{ github.event.inputs.version }}" || echo "No changes to commit"
+          git push

@@ -43,6 +43,7 @@ function parseArgs() {
   let latest = null;
   let withHash = false;
   let withCommitizen = false;
+  let outputOnly = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -54,6 +55,8 @@ function parseArgs() {
       withHash = true;
     } else if (arg === '-wc' || arg === '--with-commitizen') {
       withCommitizen = true;
+    } else if (arg === '--output-only') {
+      outputOnly = true;
     } else if (arg === '--help' || arg === '-h') {
       console.log(`
 用法: node generate-changelog.js [选项]
@@ -63,13 +66,14 @@ function parseArgs() {
   --base, --latest, -b <标签>  指定基础标签
   -wh, --with-hash      显示提交哈希
   -wc, --with-commitizen  保留 commitizen 前缀
+  --output-only         仅输出 changelog 内容（用于 CI/CD）
   -h, --help            显示帮助信息
       `);
       process.exit(0);
     }
   }
 
-  return { tagName, latest, withHash, withCommitizen };
+  return { tagName, latest, withHash, withCommitizen, outputOnly };
 }
 
 function callCommand(command) {
@@ -228,23 +232,27 @@ function writeToFile(content, append = false) {
 }
 
 function main() {
-  const { tagName, latest, withHash, withCommitizen } = parseArgs();
+  const { tagName, latest, withHash, withCommitizen, outputOnly } = parseArgs();
 
   const resolvedLatest = latest || getLatestTag();
   const resolvedTagName = tagName || getCurrentTag();
 
-  console.log('📊 正在生成变更日志...');
-  if (resolvedLatest) {
-    console.log(`📌 从: ${resolvedLatest}`);
+  if (!outputOnly) {
+    console.log('📊 正在生成变更日志...');
+    if (resolvedLatest) {
+      console.log(`📌 从: ${resolvedLatest}`);
+    }
+    if (resolvedTagName) {
+      console.log(`🏷️  到: ${resolvedTagName}`);
+    }
+    console.log('');
   }
-  if (resolvedTagName) {
-    console.log(`🏷️  到: ${resolvedTagName}`);
-  }
-  console.log('');
 
   const commits = getCommits(resolvedLatest);
   if (commits.length === 0) {
-    console.log('⚠️  没有找到提交记录');
+    if (!outputOnly) {
+      console.log('⚠️  没有找到提交记录');
+    }
     return;
   }
 
@@ -253,8 +261,12 @@ function main() {
 
   writeToFile(markdown, !!resolvedLatest);
 
-  console.log('✅ 变更日志已更新: CHANGELOG.md');
-  console.log('\n' + markdown);
+  if (outputOnly) {
+    console.log(markdown);
+  } else {
+    console.log('✅ 变更日志已更新: CHANGELOG.md');
+    console.log('\n' + markdown);
+  }
 }
 
 main();
