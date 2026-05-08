@@ -36,8 +36,11 @@ jobs:
           if [ -n "${{ github.event.inputs.base_tag }}" ]; then
             BASE_TAG="${{ github.event.inputs.base_tag }}"
           else
-            # 获取最新的正式 release 标签（只匹配 v* 格式，不包括周快照）
-            BASE_TAG=$(git tag -l "v*" --sort=-creatordate | head -n 1)
+            # 获取最新的任何类型标签（通用方式）
+            # 优先使用最新的正式 release（通过 GitHub API），如果失败则使用最新标签
+            BASE_TAG=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              "https://api.github.com/repos/${{ github.repository }}/releases/latest" \
+              | jq -r '.tag_name' 2>/dev/null || git tag -l --sort=-creatordate | head -n 1)
           fi
           
           echo "base_tag=$BASE_TAG" >> $GITHUB_OUTPUT
