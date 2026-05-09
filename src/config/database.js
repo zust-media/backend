@@ -154,6 +154,33 @@ db.exec(`
 try { db.exec('CREATE INDEX IF NOT EXISTS idx_logs_action ON activity_log(action)'); } catch { /* already exists */ }
 try { db.exec('CREATE INDEX IF NOT EXISTS idx_logs_created_at ON activity_log(created_at)'); } catch { /* already exists */ }
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS galleries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    uuid TEXT UNIQUE NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    creator_uuid TEXT NOT NULL,
+    is_public INTEGER DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (creator_uuid) REFERENCES users(uuid) ON DELETE CASCADE
+  )
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS gallery_images (
+    gallery_id INTEGER NOT NULL,
+    image_id INTEGER NOT NULL,
+    added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (gallery_id, image_id),
+    FOREIGN KEY (gallery_id) REFERENCES galleries(id) ON DELETE CASCADE,
+    FOREIGN KEY (image_id) REFERENCES images(id) ON DELETE CASCADE
+  )
+`);
+
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_gallery_images_image ON gallery_images(image_id)'); } catch { /* already exists */ }
+
 if (isNew) {
   const insertUser = db.prepare(
     'INSERT OR IGNORE INTO users (username, password, role, uuid) VALUES (?, ?, ?, ?)'

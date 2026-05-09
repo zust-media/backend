@@ -176,3 +176,48 @@ export function logCategoryDelete(req, catName, catSlug) {
     detail: { category: { name: catName, slug: catSlug } },
   });
 }
+
+export function logGalleryCreate(req, gallery) {
+  logActivity(req, 'gallery.create', {
+    version: '1.0',
+    entity_type: 'gallery',
+    entity_id: gallery.uuid,
+    detail: { gallery: { name: gallery.name, uuid: gallery.uuid } },
+  });
+}
+
+export function logGalleryUpdate(req, galleryUuid, before, after) {
+  logActivity(req, 'gallery.update', {
+    version: '1.0',
+    entity_type: 'gallery',
+    entity_id: galleryUuid,
+    detail: { before, after },
+  });
+}
+
+export function logGalleryDelete(req, galleryUuid, galleryName) {
+  logActivity(req, 'gallery.delete', {
+    version: '1.0',
+    entity_type: 'gallery',
+    entity_id: galleryUuid,
+    detail: { gallery: { name: galleryName, uuid: galleryUuid } },
+  });
+}
+
+export function logGalleryAddImages(req, galleryUuid, imageUuids) {
+  logActivity(req, 'gallery.add_images', {
+    version: '1.0',
+    entity_type: 'gallery',
+    entity_id: galleryUuid,
+    detail: { count: imageUuids.length, image_uuids: imageUuids },
+  });
+}
+
+export function logGalleryRemoveImages(req, galleryUuid, imageUuids) {
+  logActivity(req, 'gallery.remove_images', {
+    version: '1.0',
+    entity_type: 'gallery',
+    entity_id: galleryUuid,
+    detail: { count: imageUuids.length, image_uuids: imageUuids },
+  });
+}

@@ -15,6 +15,7 @@ import tagsRoutes from './routes/tags.js';
 import configRoutes from './routes/config.js';
 import usersRoutes from './routes/users.js';
 import categoriesRoutes from './routes/categories.js';
+import galleriesRoutes from './routes/galleries.js';
 import adminRoutes from './routes/admin.js';
 
 const app = express();
@@ -39,6 +40,7 @@ app.use('/api/tags', tagsRoutes);
 app.use('/api/config', configRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/categories', categoriesRoutes);
+app.use('/api/galleries', galleriesRoutes);
 app.use('/api/admin', adminRoutes);
 
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
