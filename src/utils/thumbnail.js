@@ -170,9 +170,10 @@ export async function serveImage(filename, params = {}) {
 }
 
 export async function compressForDownload(filename, options = {}) {
+  const w = options.w !== undefined ? parseInt(options.w) || 0 : 0;
+  const q = options.q !== undefined ? parseInt(options.q) || IMG_CONFIG.defaultQuality : IMG_CONFIG.defaultQuality;
+  const m = options.m || null;
   const format = options.format || 'jpeg';
-  const quality = options.quality !== undefined ? parseInt(options.quality) : IMG_CONFIG.defaultQuality;
-  const maxWidth = options.max_width !== undefined ? parseInt(options.max_width) || 0 : 2048;
 
   const uploadsDir = join(__dirname, '..', '..', 'uploads');
   const filePath = join(uploadsDir, filename);
@@ -187,23 +188,33 @@ export async function compressForDownload(filename, options = {}) {
     }
 
     let pipeline = sharp(filePath, { limitInputPixels: false });
+    let shouldResize = false;
 
-    if (maxWidth > 0 && meta.width > maxWidth) {
-      pipeline = pipeline.resize(maxWidth, null, {
+    if (w > 0 && meta.width > w) {
+      pipeline = pipeline.resize(w, null, {
         withoutEnlargement: true,
         fit: 'inside',
       });
+      shouldResize = true;
     }
 
     if (format === 'png') {
-      pipeline = pipeline.png({ quality });
+      pipeline = pipeline.png({ quality: q });
     } else if (format === 'webp') {
-      pipeline = pipeline.webp({ quality });
+      pipeline = pipeline.webp({ quality: q });
     } else {
-      pipeline = pipeline.jpeg({ quality });
+      pipeline = pipeline.jpeg({ quality: q });
     }
 
-    return await pipeline.toBuffer();
+    let buffer = await pipeline.toBuffer();
+
+    const needsWatermark = !!m;
+    if (needsWatermark) {
+      const processedMeta = shouldResize ? await sharp(buffer).metadata() : meta;
+      buffer = await applyWatermark(buffer, processedMeta, m);
+    }
+
+    return buffer;
   } catch (err) {
     console.error('Compress for download error:', err.message);
     return null;

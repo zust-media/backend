@@ -12,8 +12,7 @@ import appConfig from '../config/app.js';
 import { requireAuth } from '../middleware/auth.js';
 import { generateSignedUrl } from '../utils/signing.js';
 import { logImageUpload, logImageDelete, logImageEdit, logBatchImageDelete, logBatchImageUpdate } from '../utils/logger.js';
-import { compressForDownload } from '../utils/thumbnail.js';
-import { ZipArchive } from 'archiver';
+import { streamZipDownload } from '../utils/zip-stream.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -1283,7 +1282,7 @@ router.post('/batch-update', requireAuth, (req, res) => {
 });
 
 router.post('/batch-download', requireAuth, async (req, res) => {
-  const { image_uuids, format, quality } = req.body || {};
+  const { image_uuids } = req.body || {};
   if (!Array.isArray(image_uuids) || image_uuids.length === 0) {
     return res.status(400).json({ error: '请提供要下载的图片UUID列表' });
   }
@@ -1295,43 +1294,8 @@ router.post('/batch-download', requireAuth, async (req, res) => {
     return res.status(400).json({ error: '没有找到有效的图片' });
   }
 
-  const fmt = format || 'jpeg';
-  const fmtExt = fmt === 'webp' ? 'webp' : (fmt === 'png' ? 'png' : 'jpg');
-
-  res.setHeader('Content-Type', 'application/zip');
-  res.setHeader('Content-Disposition', `attachment; filename="batch_${images.length}.zip"`);
-
-  const archive = new ZipArchive({ zlib: { level: 5 } });
-  archive.on('error', (err) => {
-    console.error('batch-download archiver error:', err.message);
-    if (!res.headersSent) res.status(500).json({ error: '打包失败' });
-  });
-
-  archive.pipe(res);
-
-  const usedNames = new Map();
-  for (const img of images) {
-    const buffer = await compressForDownload(img.filename, { format: fmt, quality: quality !== undefined ? parseInt(quality) : 85 });
-    if (!buffer) continue;
-
-    const dotIdx = (img.original_name || img.filename).lastIndexOf('.');
-    const baseName = dotIdx > 0
-      ? (img.original_name || img.filename).substring(0, dotIdx)
-      : (img.original_name || img.filename);
-
-    let name = `${baseName}.${fmtExt}`;
-    if (usedNames.has(name)) {
-      const count = usedNames.get(name) + 1;
-      usedNames.set(name, count);
-      name = `${baseName}_${count}.${fmtExt}`;
-    } else {
-      usedNames.set(name, 1);
-    }
-
-    archive.append(buffer, { name });
-  }
-
-  archive.finalize();
+  const zipName = req.query.filename || `batch_${images.length}`;
+  await streamZipDownload(res, images, zipName, req.query);
 });
 
 /**

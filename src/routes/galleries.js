@@ -1,11 +1,10 @@
 import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import { ZipArchive } from 'archiver';
 import db from '../config/database.js';
 import appConfig from '../config/app.js';
 import { requireAuth } from '../middleware/auth.js';
 import { generateSignedUrl } from '../utils/signing.js';
-import { compressForDownload } from '../utils/thumbnail.js';
+import { streamZipDownload } from '../utils/zip-stream.js';
 import {
   logGalleryCreate,
   logGalleryUpdate,
@@ -190,9 +189,6 @@ router.get('/:uuid/download', requireAuth, async (req, res) => {
 
   if (!gallery) return res.status(404).json({ error: '照片夹不存在' });
 
-  const format = req.query.format || 'jpeg';
-  const fmtExt = format === 'webp' ? 'webp' : (format === 'png' ? 'png' : 'jpg');
-
   const imageRows = db.prepare(`
     SELECT i.filename, i.original_name FROM images i
     INNER JOIN gallery_images gi ON gi.image_id = i.id
@@ -204,41 +200,8 @@ router.get('/:uuid/download', requireAuth, async (req, res) => {
     return res.status(400).json({ error: '照片夹中没有图片' });
   }
 
-  const safeName = gallery.name.replace(/[^a-zA-Z0-9\u4e00-\u9fff_-]/g, '_');
-  res.setHeader('Content-Type', 'application/zip');
-  res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(safeName)}.zip"`);
-
-  const archive = new ZipArchive({ zlib: { level: 5 } });
-  archive.on('error', (err) => {
-    console.error('archiver error:', err.message);
-    if (!res.headersSent) res.status(500).json({ error: '打包失败' });
-  });
-
-  archive.pipe(res);
-
-  const usedNames = new Map();
-  for (const img of imageRows) {
-    const buffer = await compressForDownload(img.filename, { format, quality: 85 });
-    if (!buffer) continue;
-
-    const dotIdx = (img.original_name || img.filename).lastIndexOf('.');
-    const baseName = dotIdx > 0
-      ? (img.original_name || img.filename).substring(0, dotIdx)
-      : (img.original_name || img.filename);
-
-    let name = `${baseName}.${fmtExt}`;
-    if (usedNames.has(name)) {
-      const count = usedNames.get(name) + 1;
-      usedNames.set(name, count);
-      name = `${baseName}_${count}.${fmtExt}`;
-    } else {
-      usedNames.set(name, 1);
-    }
-
-    archive.append(buffer, { name });
-  }
-
-  archive.finalize();
+  const zipName = req.query.filename || gallery.name;
+  await streamZipDownload(res, imageRows, zipName, req.query);
 });
 
 router.get('/:uuid', requireAuth, (req, res) => {
