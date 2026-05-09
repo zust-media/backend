@@ -162,6 +162,8 @@ function classifyCommits(commits, withCommitizen = false) {
     '其他 | Other': [],
   };
 
+  const contributors = new Set();
+
   for (const commit of commits) {
     if (commit.message.includes('[skip changelog]')) continue;
 
@@ -175,6 +177,11 @@ function classifyCommits(commits, withCommitizen = false) {
       message = message.replace(/^(?<prefix>\w+)(?:\([\w\-]+\))?:\s*/, '');
     }
 
+    // 添加贡献者
+    if (commit.author && commit.author !== 'web-flow') {
+      contributors.add(commit.author);
+    }
+
     result[category].push({
       message,
       author: commit.author,
@@ -182,7 +189,7 @@ function classifyCommits(commits, withCommitizen = false) {
     });
   }
 
-  return result;
+  return { categories: result, contributors: Array.from(contributors) };
 }
 
 function getGitHubRepoUrl() {
@@ -202,7 +209,8 @@ function getGitHubRepoUrl() {
   }
 }
 
-function generateMd(data, tagName, latest, withHash = false) {
+function generateMd(classifiedData, tagName, latest, withHash = false) {
+  const { categories, contributors } = classifiedData;
   const now = new Date().toLocaleDateString('zh-CN');
   const lines = [];
   const repoUrl = getGitHubRepoUrl();
@@ -225,12 +233,12 @@ function generateMd(data, tagName, latest, withHash = false) {
   // 按分类顺序输出
   const order = ['新增 | New', '修复 | Fix', '改进 | Improved', '文档 | Docs', '其他 | Other'];
   for (const category of order) {
-    if (data[category].length === 0) continue;
+    if (categories[category].length === 0) continue;
 
     lines.push(`### ${category}`);
     lines.push('');
 
-    for (const item of data[category]) {
+    for (const item of categories[category]) {
       let line = `* ${item.message}`;
       if (withHash && repoUrl) {
         line += ` ([${item.hash}](${repoUrl}/commit/${item.hash}))`;
@@ -240,6 +248,22 @@ function generateMd(data, tagName, latest, withHash = false) {
       lines.push(line);
     }
 
+    lines.push('');
+  }
+
+  // 添加贡献者列表
+  if (contributors.length > 0) {
+    lines.push('### 👥 贡献者 | Contributors');
+    lines.push('');
+    
+    const contributorLinks = contributors.map(contributor => {
+      if (repoUrl) {
+        return `[@${contributor}](${repoUrl}/contributors)`;
+      }
+      return `@${contributor}`;
+    });
+    
+    lines.push(`感谢以下贡献者的贡献：${contributorLinks.join(', ')}`);
     lines.push('');
   }
 
