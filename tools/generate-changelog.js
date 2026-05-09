@@ -35,7 +35,7 @@ const chineseKeywords = {
 };
 
 // 忽略的前缀
-const IGNORE_PREFIXES = /^(?:build|ci|style|debug)\s*(?:\([^)]*\))*:\s*/;
+const IGNORE_PREFIXES = /^(?:build|style|debug)\s*(?:\([^)]*\))*:\s*/;
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -232,7 +232,7 @@ function generateMd(classifiedData, tagName, latest, withHash = false) {
   lines.push('');
 
   // 按分类顺序输出
-  const order = ['新增 | New', '修复 | Fix', '改进 | Improved', '文档 | Docs', '其他 | Other'];
+  const order = ['新增 | New', '修复 | Fix', '改进 | Improved', '文档 | Docs', '自动化 | CI', '其他 | Other'];
   for (const category of order) {
     if (categories[category].length === 0) continue;
 
