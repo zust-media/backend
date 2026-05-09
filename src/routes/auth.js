@@ -368,6 +368,35 @@ router.put('/profile', requireAuth, (req, res) => {
   logUserUpdate(req, userId, beforeUser.uuid, before, after);
 });
 
+/**
+ * @swagger
+ * /api/auth/default-gallery:
+ *   get:
+ *     tags: [Auth]
+ *     summary: 获取默认喜欢照片夹
+ *     description: 获取当前用户设置的默认喜欢照片夹信息
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200:
+ *         description: 默认照片夹信息
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 gallery:
+ *                   type: object
+ *                   nullable: true
+ *                   properties:
+ *                     uuid: { type: string }
+ *                     name: { type: string }
+ *       401:
+ *         description: 未登录
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ */
 router.get('/default-gallery', requireAuth, (req, res) => {
   const userId = req.user.user_id;
   const user = db.prepare('SELECT default_gallery_uuid FROM users WHERE id = ?').get(userId);
@@ -377,6 +406,48 @@ router.get('/default-gallery', requireAuth, (req, res) => {
   res.json({ gallery: gallery || null });
 });
 
+/**
+ * @swagger
+ * /api/auth/default-gallery:
+ *   put:
+ *     tags: [Auth]
+ *     summary: 设置默认喜欢照片夹
+ *     description: 设置当前用户的默认喜欢照片夹，用于"喜欢"功能
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [gallery_uuid]
+ *             properties:
+ *               gallery_uuid:
+ *                 type: string
+ *                 description: 照片夹UUID
+ *     responses:
+ *       200:
+ *         description: 设置成功
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message: { type: string }
+ *                 gallery_uuid: { type: string }
+ *       400:
+ *         description: 参数错误或无权访问
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ *       401:
+ *         description: 未登录
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ */
 router.put('/default-gallery', requireAuth, (req, res) => {
   const userId = req.user.user_id;
   const { gallery_uuid } = req.body || {};

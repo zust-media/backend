@@ -490,17 +490,68 @@ router.delete('/:uuid', requireAdmin, (req, res) => {
 
 /**
  * @swagger
+ * /api/users/lookup:
+ *   get:
+ *     tags: [Users]
+ *     summary: 批量查询用户信息
+ *     description: 通过逗号分隔的UUID列表批量查询用户基本信息（不含权限检查）
+ *     parameters:
+ *       - in: query
+ *         name: uuids
+ *         required: true
+ *         schema: { type: string }
+ *         description: 逗号分隔的用户UUID列表
+ *     responses:
+ *       200:
+ *         description: 用户信息映射
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 users:
+ *                   type: object
+ *                   description: 以UUID为key的用户信息映射
+ *                   additionalProperties:
+ *                     type: object
+ *                     properties:
+ *                       uuid: { type: string }
+ *                       username: { type: string }
+ *                       nickname: { type: string }
+ *                       slug: { type: string }
+ */
+router.get('/lookup', (_req, res) => {
+  const uuidsParam = (_req.query.uuids || '').trim();
+  if (!uuidsParam) return res.json({ users: {} });
+
+  const uuids = uuidsParam.split(',').map(s => s.trim()).filter(Boolean);
+  if (uuids.length === 0) return res.json({ users: {} });
+
+  const placeholders = uuids.map(() => '?').join(',');
+  const rows = db.prepare(
+    `SELECT uuid, username, nickname, slug FROM users WHERE uuid IN (${placeholders})`
+  ).all(...uuids);
+
+  const users = {};
+  for (const r of rows) {
+    users[r.uuid] = { uuid: r.uuid, username: r.username, nickname: r.nickname || '', slug: r.slug || '' };
+  }
+  res.json({ users });
+});
+
+/**
+ * @swagger
  * /api/users/{uuid}:
  *   get:
  *     tags: [Users]
  *     summary: 用户详情及上传图片
- *     description: 根据用户UUID获取用户详情及其上传的图片列表
+ *     description: 根据用户UUID或slug获取用户详情及其上传的图片列表（分页）
  *     parameters:
  *       - in: path
  *         name: uuid
  *         required: true
  *         schema: { type: string }
- *         description: 用户UUID
+ *         description: 用户UUID或slug
  *       - in: query
  *         name: page
  *         schema: { type: integer, default: 1 }
@@ -538,25 +589,6 @@ router.delete('/:uuid', requireAdmin, (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/ApiError'
  */
-router.get('/lookup', (_req, res) => {
-  const uuidsParam = (_req.query.uuids || '').trim();
-  if (!uuidsParam) return res.json({ users: {} });
-
-  const uuids = uuidsParam.split(',').map(s => s.trim()).filter(Boolean);
-  if (uuids.length === 0) return res.json({ users: {} });
-
-  const placeholders = uuids.map(() => '?').join(',');
-  const rows = db.prepare(
-    `SELECT uuid, username, nickname, slug FROM users WHERE uuid IN (${placeholders})`
-  ).all(...uuids);
-
-  const users = {};
-  for (const r of rows) {
-    users[r.uuid] = { uuid: r.uuid, username: r.username, nickname: r.nickname || '', slug: r.slug || '' };
-  }
-  res.json({ users });
-});
-
 router.get('/:uuid', (req, res) => {
   const identifier = (req.params.uuid || '').trim();
   if (!identifier) return res.status(400).json({ error: '无效的用户标识' });

@@ -116,6 +116,65 @@ router.get('/stats', requireAdmin, (_req, res) => {
   });
 });
 
+/**
+ * @swagger
+ * /api/admin/logs:
+ *   get:
+ *     tags: [Admin]
+ *     summary: 操作日志列表
+ *     description: 分页获取系统操作日志，可按操作类型过滤
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *         description: 页码
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 50 }
+ *         description: 每页数量（最大100）
+ *       - in: query
+ *         name: action
+ *         schema: { type: string }
+ *         description: 按操作类型过滤
+ *     responses:
+ *       200:
+ *         description: 日志列表
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 logs:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       uuid: { type: string }
+ *                       operator_uuid: { type: string }
+ *                       operator_username: { type: string }
+ *                       operator_nickname: { type: string }
+ *                       action: { type: string }
+ *                       data: { type: object }
+ *                       created_at: { type: string, format: date-time }
+ *                 actions:
+ *                   type: array
+ *                   items: { type: string }
+ *                 pagination:
+ *                   $ref: '#/components/schemas/Pagination'
+ *       401:
+ *         description: 未登录
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ *       403:
+ *         description: 非管理员
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ */
 router.get('/logs', requireAdmin, (req, res) => {
   const page = Math.max(1, parseInt(req.query.page) || 1);
   const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 50));
@@ -160,6 +219,47 @@ router.get('/logs', requireAdmin, (req, res) => {
   });
 });
 
+/**
+ * @swagger
+ * /api/admin/auth-codes:
+ *   get:
+ *     tags: [Admin]
+ *     summary: 获取临时授权码列表
+ *     description: 获取所有临时授权码及其使用情况
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200:
+ *         description: 授权码列表
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 codes:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id: { type: integer }
+ *                       code: { type: string }
+ *                       created_by: { type: string }
+ *                       expires_at: { type: string, format: date-time }
+ *                       max_uses: { type: integer, nullable: true }
+ *                       use_count: { type: integer }
+ *                       created_at: { type: string, format: date-time }
+ *       401:
+ *         description: 未登录
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ *       403:
+ *         description: 非管理员
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ */
 router.get('/auth-codes', requireAdmin, (_req, res) => {
   const rows = db.prepare(
     'SELECT id, code, created_by, expires_at, max_uses, use_count, created_at FROM temp_auth_codes ORDER BY created_at DESC'
@@ -167,6 +267,53 @@ router.get('/auth-codes', requireAdmin, (_req, res) => {
   res.json({ codes: rows });
 });
 
+/**
+ * @swagger
+ * /api/admin/auth-codes:
+ *   post:
+ *     tags: [Admin]
+ *     summary: 创建临时授权码
+ *     description: 创建可临时访问 API 的授权码，用于分享链接等场景
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               hours:
+ *                 type: integer
+ *                 default: 24
+ *                 description: 有效时长（小时）
+ *               max_uses:
+ *                 type: integer
+ *                 nullable: true
+ *                 description: 最大使用次数（不传则无限制）
+ *     responses:
+ *       201:
+ *         description: 创建成功
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 code: { type: string, description: '授权码，格式为 tmp_xxxxxxxx' }
+ *                 expires_at: { type: string, format: date-time }
+ *                 max_uses: { type: integer, nullable: true }
+ *       401:
+ *         description: 未登录
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ *       403:
+ *         description: 非管理员
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ */
 router.post('/auth-codes', requireAdmin, (req, res) => {
   const { hours, max_uses } = req.body || {};
   const h = parseInt(hours) || 24;
@@ -185,6 +332,48 @@ router.post('/auth-codes', requireAdmin, (req, res) => {
   });
 });
 
+/**
+ * @swagger
+ * /api/admin/auth-codes/{id}:
+ *   delete:
+ *     tags: [Admin]
+ *     summary: 删除临时授权码
+ *     description: 删除指定的临时授权码
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *         description: 授权码ID
+ *     responses:
+ *       200:
+ *         description: 删除成功
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message: { type: string }
+ *       401:
+ *         description: 未登录
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ *       403:
+ *         description: 非管理员
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ *       404:
+ *         description: 授权码不存在
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ */
 router.delete('/auth-codes/:id', requireAdmin, (req, res) => {
   const id = parseInt(req.params.id);
   const row = db.prepare('SELECT id FROM temp_auth_codes WHERE id = ?').get(id);

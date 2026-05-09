@@ -15,6 +15,13 @@ import {
 
 const router = Router();
 
+/**
+ * @swagger
+ * tags:
+ *   name: Galleries
+ *   description: 照片夹管理，支持创建、编辑、归档、协同、转移等
+ */
+
 function getUserUuid(req) {
   const row = db.prepare('SELECT uuid FROM users WHERE id = ?').get(req.user.user_id);
   return row ? row.uuid : null;
@@ -133,6 +140,44 @@ function mapGalleryRow(row, userUuid) {
   };
 }
 
+/**
+ * @swagger
+ * /api/galleries:
+ *   get:
+ *     tags: [Galleries]
+ *     summary: 获取照片夹列表
+ *     description: 获取当前用户有权限访问的所有照片夹列表（拥有、协同或公开的），管理员可查看全部
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200:
+ *         description: 照片夹列表
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 galleries:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       uuid: { type: string }
+ *                       name: { type: string }
+ *                       description: { type: string }
+ *                       creator_uuid: { type: string }
+ *                       is_public: { type: integer }
+ *                       is_archived: { type: integer }
+ *                       is_public_editable: { type: integer }
+ *                       my_role: { type: string, nullable: true }
+ *                       image_count: { type: integer }
+ *                       collaborators_count: { type: integer }
+ *       401:
+ *         description: 未登录
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ */
 router.get('/', requireAuth, (req, res) => {
   const userUuid = getUserUuid(req);
   if (!userUuid) return res.status(401).json({ error: '未登录' });
@@ -158,6 +203,58 @@ router.get('/', requireAuth, (req, res) => {
   res.json({ galleries: rows.map(r => mapGalleryRow(r, userUuid)) });
 });
 
+/**
+ * @swagger
+ * /api/galleries:
+ *   post:
+ *     tags: [Galleries]
+ *     summary: 创建照片夹
+ *     description: 创建新的照片夹，创建者自动成为 owner 协作者
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name]
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 description: 照片夹名称
+ *               description:
+ *                 type: string
+ *                 description: 照片夹描述
+ *               is_public:
+ *                 type: boolean
+ *                 default: true
+ *                 description: 是否公开
+ *     responses:
+ *       201:
+ *         description: 创建成功
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 gallery:
+ *                   type: object
+ *                   properties:
+ *                     uuid: { type: string }
+ *                     name: { type: string }
+ *       400:
+ *         description: 名称为空
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ *       401:
+ *         description: 未登录
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ */
 router.post('/', requireAuth, (req, res) => {
   const userUuid = getUserUuid(req);
   if (!userUuid) return res.status(401).json({ error: '未登录' });
@@ -179,6 +276,62 @@ router.post('/', requireAuth, (req, res) => {
   res.status(201).json({ gallery: mapGalleryRow(gallery, userUuid) });
 });
 
+/**
+ * @swagger
+ * /api/galleries/{uuid}/images:
+ *   post:
+ *     tags: [Galleries]
+ *     summary: 向照片夹添加图片
+ *     description: 向指定照片夹添加图片（需有 owner/admin/user 角色）。已归档照片夹不可添加。
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: uuid
+ *         required: true
+ *         schema: { type: string }
+ *         description: 照片夹UUID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [image_uuids]
+ *             properties:
+ *               image_uuids:
+ *                 type: array
+ *                 items: { type: string }
+ *                 description: 图片UUID列表
+ *     responses:
+ *       200:
+ *         description: 添加结果
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message: { type: string }
+ *                 added: { type: integer }
+ *                 skipped: { type: integer }
+ *       400:
+ *         description: 参数错误或照片夹已归档
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ *       403:
+ *         description: 无权限
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ *       404:
+ *         description: 照片夹不存在
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ */
 router.post('/:uuid/images', requireAuth, (req, res) => {
   const userUuid = getUserUuid(req);
   const gallery = resolveGallery(req.params.uuid, userUuid, isAdminUser(req));
@@ -218,6 +371,61 @@ router.post('/:uuid/images', requireAuth, (req, res) => {
   res.json({ message: `成功添加 ${added} 张图片`, added, skipped: image_uuids.length - added });
 });
 
+/**
+ * @swagger
+ * /api/galleries/{uuid}/images:
+ *   delete:
+ *     tags: [Galleries]
+ *     summary: 从照片夹移除图片
+ *     description: 从指定照片夹移除图片（需有 owner/admin/user 角色）。已归档照片夹不可移除。
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: uuid
+ *         required: true
+ *         schema: { type: string }
+ *         description: 照片夹UUID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [image_uuids]
+ *             properties:
+ *               image_uuids:
+ *                 type: array
+ *                 items: { type: string }
+ *                 description: 图片UUID列表
+ *     responses:
+ *       200:
+ *         description: 移除结果
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message: { type: string }
+ *                 removed: { type: integer }
+ *       400:
+ *         description: 参数错误或照片夹已归档
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ *       403:
+ *         description: 无权限
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ *       404:
+ *         description: 照片夹不存在
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ */
 router.delete('/:uuid/images', requireAuth, (req, res) => {
   const userUuid = getUserUuid(req);
   const gallery = resolveGallery(req.params.uuid, userUuid, isAdminUser(req));
@@ -329,6 +537,58 @@ router.get('/:uuid/download', requireAuth, async (req, res) => {
   await streamZipDownload(res, imageRows, zipName, req.query);
 });
 
+/**
+ * @swagger
+ * /api/galleries/{uuid}:
+ *   get:
+ *     tags: [Galleries]
+ *     summary: 获取照片夹详情
+ *     description: 获取照片夹详情及其图片列表（分页），支持通过 uuid 或 id 定位
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: uuid
+ *         required: true
+ *         schema: { type: string }
+ *         description: 照片夹UUID
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *         description: 页码
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 20 }
+ *         description: 每页数量（最大100）
+ *     responses:
+ *       200:
+ *         description: 照片夹详情
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 gallery:
+ *                   type: object
+ *                 images:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Image'
+ *                 collaborators:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       user_uuid: { type: string }
+ *                       role: { type: string }
+ *                 pagination:
+ *                   $ref: '#/components/schemas/Pagination'
+ *       404:
+ *         description: 照片夹不存在
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ */
 router.get('/:uuid', requireAuth, (req, res) => {
   const userUuid = getUserUuid(req);
   const gallery = resolveGallery(req.params.uuid, userUuid, isAdminUser(req));
@@ -369,6 +629,70 @@ router.get('/:uuid', requireAuth, (req, res) => {
   });
 });
 
+/**
+ * @swagger
+ * /api/galleries/{uuid}:
+ *   put:
+ *     tags: [Galleries]
+ *     summary: 更新照片夹
+ *     description: 更新照片夹的名称、描述、公开状态（owner/admin 可修改）。公开可编辑开关仅管理员可设置。
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: uuid
+ *         required: true
+ *         schema: { type: string }
+ *         description: 照片夹UUID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 description: 照片夹名称
+ *               description:
+ *                 type: string
+ *                 description: 照片夹描述
+ *               is_public:
+ *                 type: integer
+ *                 enum: [0, 1]
+ *                 description: 是否公开
+ *               is_public_editable:
+ *                 type: integer
+ *                 enum: [0, 1]
+ *                 description: 是否公开可编辑（仅管理员可设置）
+ *     responses:
+ *       200:
+ *         description: 更新成功
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 gallery:
+ *                   type: object
+ *       400:
+ *         description: 名称为空
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ *       403:
+ *         description: 无权限
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ *       404:
+ *         description: 照片夹不存在
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ */
 router.put('/:uuid', requireAuth, (req, res) => {
   const userUuid = getUserUuid(req);
   const gallery = resolveGallery(req.params.uuid, userUuid, isAdminUser(req));
@@ -405,6 +729,42 @@ router.put('/:uuid', requireAuth, (req, res) => {
   res.json({ gallery: mapGalleryRow(updated, userUuid) });
 });
 
+/**
+ * @swagger
+ * /api/galleries/{uuid}:
+ *   delete:
+ *     tags: [Galleries]
+ *     summary: 删除照片夹
+ *     description: 删除照片夹（仅 owner 可删除）
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: uuid
+ *         required: true
+ *         schema: { type: string }
+ *         description: 照片夹UUID
+ *     responses:
+ *       200:
+ *         description: 删除成功
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message: { type: string }
+ *       403:
+ *         description: 无权限（非 owner）
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ *       404:
+ *         description: 照片夹不存在
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ */
 router.delete('/:uuid', requireAuth, (req, res) => {
   const userUuid = getUserUuid(req);
   const gallery = resolveGallery(req.params.uuid, userUuid, isAdminUser(req));
@@ -419,6 +779,42 @@ router.delete('/:uuid', requireAuth, (req, res) => {
   res.json({ message: '照片夹已删除' });
 });
 
+/**
+ * @swagger
+ * /api/galleries/{uuid}/archive:
+ *   post:
+ *     tags: [Galleries]
+ *     summary: 归档照片夹
+ *     description: 归档照片夹（仅 owner 可操作），归档后不可添加/移除图片
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: uuid
+ *         required: true
+ *         schema: { type: string }
+ *         description: 照片夹UUID
+ *     responses:
+ *       200:
+ *         description: 归档成功
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message: { type: string }
+ *       403:
+ *         description: 无权限
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ *       404:
+ *         description: 照片夹不存在
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ */
 router.post('/:uuid/archive', requireAuth, (req, res) => {
   const userUuid = getUserUuid(req);
   const gallery = resolveGallery(req.params.uuid, userUuid, isAdminUser(req));
@@ -432,6 +828,42 @@ router.post('/:uuid/archive', requireAuth, (req, res) => {
   res.json({ message: '照片夹已归档', gallery: mapGalleryRow({ ...gallery, is_archived: 1 }, userUuid) });
 });
 
+/**
+ * @swagger
+ * /api/galleries/{uuid}/unarchive:
+ *   post:
+ *     tags: [Galleries]
+ *     summary: 取消归档
+ *     description: 取消归档照片夹（仅 owner 可操作），恢复后可正常添加/移除图片
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: uuid
+ *         required: true
+ *         schema: { type: string }
+ *         description: 照片夹UUID
+ *     responses:
+ *       200:
+ *         description: 取消归档成功
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message: { type: string }
+ *       403:
+ *         description: 无权限
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ *       404:
+ *         description: 照片夹不存在
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ */
 router.post('/:uuid/unarchive', requireAuth, (req, res) => {
   const userUuid = getUserUuid(req);
   const gallery = resolveGallery(req.params.uuid, userUuid, isAdminUser(req));
@@ -445,6 +877,59 @@ router.post('/:uuid/unarchive', requireAuth, (req, res) => {
   res.json({ message: '已取消归档', gallery: mapGalleryRow({ ...gallery, is_archived: 0 }, userUuid) });
 });
 
+/**
+ * @swagger
+ * /api/galleries/{uuid}/transfer:
+ *   post:
+ *     tags: [Galleries]
+ *     summary: 转移照片夹所有权
+ *     description: 将照片夹所有权转移给另一个用户（仅 owner 可操作）。原 owner 降为 user 角色。
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: uuid
+ *         required: true
+ *         schema: { type: string }
+ *         description: 照片夹UUID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [target_user_uuid]
+ *             properties:
+ *               target_user_uuid:
+ *                 type: string
+ *                 description: 目标用户UUID
+ *     responses:
+ *       200:
+ *         description: 转移成功
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message: { type: string }
+ *       400:
+ *         description: 参数错误或目标用户不存在
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ *       403:
+ *         description: 无权限
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ *       404:
+ *         description: 照片夹不存在
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ */
 router.post('/:uuid/transfer', requireAuth, (req, res) => {
   const userUuid = getUserUuid(req);
   const gallery = resolveGallery(req.params.uuid, userUuid, isAdminUser(req));
@@ -473,6 +958,43 @@ router.post('/:uuid/transfer', requireAuth, (req, res) => {
   res.json({ message: '照片夹已转移' });
 });
 
+/**
+ * @swagger
+ * /api/galleries/{uuid}/collaborators:
+ *   get:
+ *     tags: [Galleries]
+ *     summary: 获取照片夹协同用户
+ *     description: 获取照片夹的协同用户列表
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: uuid
+ *         required: true
+ *         schema: { type: string }
+ *         description: 照片夹UUID
+ *     responses:
+ *       200:
+ *         description: 协同用户列表
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 collaborators:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       user_uuid: { type: string }
+ *                       role: { type: string }
+ *                       added_at: { type: string, format: date-time }
+ *       404:
+ *         description: 照片夹不存在
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ */
 router.get('/:uuid/collaborators', requireAuth, (req, res) => {
   const userUuid = getUserUuid(req);
   const gallery = resolveGallery(req.params.uuid, userUuid, isAdminUser(req));
@@ -486,6 +1008,64 @@ router.get('/:uuid/collaborators', requireAuth, (req, res) => {
   res.json({ collaborators: rows });
 });
 
+/**
+ * @swagger
+ * /api/galleries/{uuid}/collaborators:
+ *   post:
+ *     tags: [Galleries]
+ *     summary: 添加/更新协同用户
+ *     description: 向照片夹添加协同用户或更新其角色（需 owner/admin 权限）。不能修改 owner 角色。
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: uuid
+ *         required: true
+ *         schema: { type: string }
+ *         description: 照片夹UUID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [user_uuid]
+ *             properties:
+ *               user_uuid:
+ *                 type: string
+ *                 description: 目标用户UUID
+ *               role:
+ *                 type: string
+ *                 enum: [admin, user]
+ *                 default: user
+ *                 description: 角色
+ *     responses:
+ *       200:
+ *         description: 更新成功
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message: { type: string }
+ *       400:
+ *         description: 参数错误或目标用户不存在
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ *       403:
+ *         description: 无权限
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ *       404:
+ *         description: 照片夹不存在
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ */
 router.post('/:uuid/collaborators', requireAuth, (req, res) => {
   const userUuid = getUserUuid(req);
   const gallery = resolveGallery(req.params.uuid, userUuid, isAdminUser(req));
@@ -519,6 +1099,53 @@ router.post('/:uuid/collaborators', requireAuth, (req, res) => {
   res.json({ message: '协同用户已更新' });
 });
 
+/**
+ * @swagger
+ * /api/galleries/{uuid}/collaborators/{collabUuid}:
+ *   delete:
+ *     tags: [Galleries]
+ *     summary: 移除协同用户
+ *     description: 从照片夹移除协同用户（需 owner/admin 权限）。不能移除 owner。
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: uuid
+ *         required: true
+ *         schema: { type: string }
+ *         description: 照片夹UUID
+ *       - in: path
+ *         name: collabUuid
+ *         required: true
+ *         schema: { type: string }
+ *         description: 协同用户UUID
+ *     responses:
+ *       200:
+ *         description: 移除成功
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message: { type: string }
+ *       400:
+ *         description: 不能移除owner
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ *       403:
+ *         description: 无权限
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ *       404:
+ *         description: 照片夹或协同用户不存在
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ */
 router.delete('/:uuid/collaborators/:collabUuid', requireAuth, (req, res) => {
   const userUuid = getUserUuid(req);
   const gallery = resolveGallery(req.params.uuid, userUuid, isAdminUser(req));
@@ -539,6 +1166,59 @@ router.delete('/:uuid/collaborators/:collabUuid', requireAuth, (req, res) => {
   res.json({ message: '已移除协同用户' });
 });
 
+/**
+ * @swagger
+ * /api/galleries/like:
+ *   post:
+ *     tags: [Galleries]
+ *     summary: 切换图片喜爱状态
+ *     description: 将图片添加到默认喜爱照片夹或移除。需要先在用户设置中指定默认照片夹。
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [image_uuid]
+ *             properties:
+ *               image_uuid:
+ *                 type: string
+ *                 description: 图片UUID
+ *               action:
+ *                 type: string
+ *                 enum: [add]
+ *                 description: 传 'add' 时，如已存在则返回 already=true 而不取消
+ *     responses:
+ *       200:
+ *         description: 操作结果
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 liked: { type: boolean }
+ *                 already: { type: boolean }
+ *                 gallery_uuid: { type: string }
+ *       400:
+ *         description: 参数错误或未设置默认照片夹
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ *       401:
+ *         description: 未登录
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ *       403:
+ *         description: 默认照片夹不可访问
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ */
 router.post('/like', requireAuth, (req, res) => {
   const userUuid = getUserUuid(req);
   if (!userUuid) return res.status(401).json({ error: '未登录' });
@@ -590,6 +1270,32 @@ router.post('/like', requireAuth, (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/galleries/like/status:
+ *   get:
+ *     tags: [Galleries]
+ *     summary: 获取已喜爱的图片UUID列表
+ *     description: 返回当前用户所喜爱（在默认照片夹中）的所有图片UUID
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200:
+ *         description: 已喜爱图片UUID列表
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 liked_uuids:
+ *                   type: array
+ *                   items: { type: string }
+ *       401:
+ *         description: 未登录
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ */
 router.get('/like/status', requireAuth, (req, res) => {
   const userUuid = getUserUuid(req);
   if (!userUuid) return res.status(401).json({ error: '未登录' });
