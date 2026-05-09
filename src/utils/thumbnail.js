@@ -120,6 +120,7 @@ export async function serveImage(filename, params = {}) {
   const w = params.w !== undefined ? parseInt(params.w) || 0 : 0;
   const q = params.q !== undefined ? parseInt(params.q) || IMG_CONFIG.defaultQuality : IMG_CONFIG.defaultQuality;
   const m = params.m || null;
+  const fm = params.format || null;
 
   const uploadsDir = join(__dirname, '..', '..', 'uploads');
   const filePath = join(uploadsDir, filename);
@@ -144,9 +145,11 @@ export async function serveImage(filename, params = {}) {
       shouldResize = true;
     }
 
-    const format = meta.format === 'png' ? 'png' : 'jpeg';
+    const format = fm || (meta.format === 'png' ? 'png' : 'jpeg');
     if (format === 'png') {
       pipeline = pipeline.png({ quality: q });
+    } else if (format === 'webp') {
+      pipeline = pipeline.webp({ quality: q });
     } else {
       pipeline = pipeline.jpeg({ quality: q });
     }

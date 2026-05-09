@@ -49,7 +49,10 @@ app.get('/api/docs.json', (_req, res) => res.json(swaggerSpec));
 app.get('/api/img/:filename', requireValidSig, async (req, res) => {
   const filename = basename(req.params.filename);
   const isDownload = req.query.dl === '1';
-  const mimeType = extname(filename).toLowerCase() === '.png' ? 'image/png' : 'image/jpeg';
+  const fmt = req.query.format;
+  const mimeType = fmt === 'webp' ? 'image/webp'
+    : (fmt === 'png' ? 'image/png'
+    : (extname(filename).toLowerCase() === '.png' ? 'image/png' : 'image/jpeg'));
 
   try {
     const buffer = await serveImage(filename, req.query);
