@@ -1,5 +1,4 @@
 import express from 'express';
-import cors from 'cors';
 import swaggerUi from 'swagger-ui-express';
 import swaggerSpec from './config/swagger.js';
 import { basename, extname } from 'path';
@@ -21,14 +20,20 @@ import adminRoutes from './routes/admin.js';
 const app = express();
 const PORT = process.env.PORT || config.server?.port || 8080;
 
-app.use(cors({
-  origin(_origin, callback) {
-    callback(null, true);
-  },
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  maxAge: 86400,
-}));
+app.set('trust proxy', 1);
+
+app.options('*', (_req, res) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.header('Access-Control-Max-Age', '86400');
+  res.status(204).end();
+});
+
+app.use((_req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  next();
+});
 
 app.use(express.json());
 app.use(authenticate);
