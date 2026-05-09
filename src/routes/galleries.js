@@ -1,13 +1,11 @@
 import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
-import { existsSync } from 'fs';
 import { ZipArchive } from 'archiver';
 import db from '../config/database.js';
 import appConfig from '../config/app.js';
 import { requireAuth } from '../middleware/auth.js';
 import { generateSignedUrl } from '../utils/signing.js';
+import { compressForDownload } from '../utils/thumbnail.js';
 import {
   logGalleryCreate,
   logGalleryUpdate,
@@ -15,10 +13,6 @@ import {
   logGalleryAddImages,
   logGalleryRemoveImages,
 } from '../utils/logger.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const uploadsDir = join(__dirname, '..', '..', 'uploads');
 
 const router = Router();
 
@@ -190,11 +184,14 @@ router.delete('/:uuid/images', requireAuth, (req, res) => {
   res.json({ message: `成功移除 ${removed} 张图片`, removed });
 });
 
-router.get('/:uuid/download', requireAuth, (req, res) => {
+router.get('/:uuid/download', requireAuth, async (req, res) => {
   const userUuid = getUserUuid(req);
   const gallery = resolveGallery(req.params.uuid, userUuid);
 
   if (!gallery) return res.status(404).json({ error: '照片夹不存在' });
+
+  const format = req.query.format || 'jpeg';
+  const fmtExt = format === 'webp' ? 'webp' : (format === 'png' ? 'png' : 'jpg');
 
   const imageRows = db.prepare(`
     SELECT i.filename, i.original_name FROM images i
@@ -221,22 +218,24 @@ router.get('/:uuid/download', requireAuth, (req, res) => {
 
   const usedNames = new Map();
   for (const img of imageRows) {
-    const filePath = join(uploadsDir, img.filename);
-    if (!existsSync(filePath)) continue;
+    const buffer = await compressForDownload(img.filename, { format, quality: 85 });
+    if (!buffer) continue;
 
-    let name = img.original_name || img.filename;
+    const dotIdx = (img.original_name || img.filename).lastIndexOf('.');
+    const baseName = dotIdx > 0
+      ? (img.original_name || img.filename).substring(0, dotIdx)
+      : (img.original_name || img.filename);
+
+    let name = `${baseName}.${fmtExt}`;
     if (usedNames.has(name)) {
       const count = usedNames.get(name) + 1;
       usedNames.set(name, count);
-      const dotIdx = name.lastIndexOf('.');
-      name = dotIdx > 0
-        ? `${name.substring(0, dotIdx)}_${count}${name.substring(dotIdx)}`
-        : `${name}_${count}`;
+      name = `${baseName}_${count}.${fmtExt}`;
     } else {
       usedNames.set(name, 1);
     }
 
-    archive.file(filePath, { name });
+    archive.append(buffer, { name });
   }
 
   archive.finalize();
