@@ -248,7 +248,7 @@ function generateMd(classifiedData, tagName, latest, withHash = false) {
       // 添加提交者信息
       if (item.author && item.author !== 'web-flow') {
         if (repoUrl) {
-          line += ` @[${item.author}](${repoUrl}/search?q=author:${encodeURIComponent(item.author)})`;
+          line += ` @${item.author}`;
         } else {
           line += ` @${item.author}`;
         }
