@@ -336,4 +336,27 @@ router.put('/profile', requireAuth, (req, res) => {
   logUserUpdate(req, userId, beforeUser.uuid, before, after);
 });
 
+router.get('/default-gallery', requireAuth, (req, res) => {
+  const userId = req.user.user_id;
+  const user = db.prepare('SELECT default_gallery_uuid FROM users WHERE id = ?').get(userId);
+  if (!user?.default_gallery_uuid) return res.json({ gallery: null });
+
+  const gallery = db.prepare('SELECT * FROM galleries WHERE uuid = ?').get(user.default_gallery_uuid);
+  res.json({ gallery: gallery || null });
+});
+
+router.put('/default-gallery', requireAuth, (req, res) => {
+  const userId = req.user.user_id;
+  const { gallery_uuid } = req.body || {};
+  if (!gallery_uuid) return res.status(400).json({ error: '请提供照片夹UUID' });
+
+  const gallery = db.prepare(
+    'SELECT * FROM galleries WHERE uuid = ? AND creator_uuid = (SELECT uuid FROM users WHERE id = ?)'
+  ).get(gallery_uuid, userId);
+  if (!gallery) return res.status(400).json({ error: '照片夹不存在或不属于你' });
+
+  db.prepare('UPDATE users SET default_gallery_uuid = ? WHERE id = ?').run(gallery_uuid, userId);
+  res.json({ message: '默认照片夹已更新', gallery_uuid });
+});
+
 export default router;

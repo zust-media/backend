@@ -351,4 +351,74 @@ router.delete('/:uuid', requireAuth, (req, res) => {
   res.json({ message: '照片夹已删除' });
 });
 
+router.post('/like', requireAuth, (req, res) => {
+  const userUuid = getUserUuid(req);
+  if (!userUuid) return res.status(401).json({ error: '未登录' });
+
+  const { image_uuid } = req.body || {};
+  if (!image_uuid) return res.status(400).json({ error: '请提供图片UUID' });
+
+  const imageId = resolveImageId(image_uuid);
+  if (!imageId) return res.status(400).json({ error: '图片不存在' });
+
+  let defaultGalleryUuid = db.prepare(
+    'SELECT default_gallery_uuid FROM users WHERE uuid = ?'
+  ).get(userUuid)?.default_gallery_uuid;
+
+  let gallery;
+  if (defaultGalleryUuid) {
+    gallery = db.prepare('SELECT * FROM galleries WHERE uuid = ?').get(defaultGalleryUuid);
+  }
+
+  if (!gallery) {
+    const newUuid = uuidv4();
+    db.prepare(
+      'INSERT INTO galleries (uuid, name, description, creator_uuid, is_public) VALUES (?, ?, ?, ?, ?)'
+    ).run(newUuid, '❤️ 喜欢', '默认喜欢文件夹', userUuid, 0);
+    db.prepare('UPDATE users SET default_gallery_uuid = ? WHERE uuid = ?').run(newUuid, userUuid);
+    gallery = db.prepare('SELECT * FROM galleries WHERE uuid = ?').get(newUuid);
+    logGalleryCreate(req, gallery);
+  }
+
+  const existing = db.prepare(
+    'SELECT 1 FROM gallery_images WHERE gallery_id = ? AND image_id = ?'
+  ).get(gallery.id, imageId);
+
+  if (existing) {
+    db.prepare(
+      'DELETE FROM gallery_images WHERE gallery_id = ? AND image_id = ?'
+    ).run(gallery.id, imageId);
+    db.prepare('UPDATE galleries SET updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(gallery.id);
+    res.json({ liked: false, gallery_uuid: gallery.uuid });
+  } else {
+    db.prepare(
+      'INSERT OR IGNORE INTO gallery_images (gallery_id, image_id) VALUES (?, ?)'
+    ).run(gallery.id, imageId);
+    db.prepare('UPDATE galleries SET updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(gallery.id);
+    res.json({ liked: true, gallery_uuid: gallery.uuid });
+  }
+});
+
+router.get('/like/status', requireAuth, (req, res) => {
+  const userUuid = getUserUuid(req);
+  if (!userUuid) return res.status(401).json({ error: '未登录' });
+
+  const defaultGalleryUuid = db.prepare(
+    'SELECT default_gallery_uuid FROM users WHERE uuid = ?'
+  ).get(userUuid)?.default_gallery_uuid;
+
+  if (!defaultGalleryUuid) return res.json({ liked_uuids: [] });
+
+  const gallery = db.prepare('SELECT id FROM galleries WHERE uuid = ?').get(defaultGalleryUuid);
+  if (!gallery) return res.json({ liked_uuids: [] });
+
+  const rows = db.prepare(`
+    SELECT i.uuid FROM images i
+    INNER JOIN gallery_images gi ON gi.image_id = i.id
+    WHERE gi.gallery_id = ?
+  `).all(gallery.id);
+
+  res.json({ liked_uuids: rows.map(r => r.uuid) });
+});
+
 export default router;

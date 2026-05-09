@@ -95,6 +95,7 @@ try { db.exec('ALTER TABLE users ADD COLUMN uuid TEXT'); } catch { /* already ex
 try { db.exec('ALTER TABLE users ADD COLUMN slug TEXT'); } catch { /* already exists */ }
 try { db.exec('ALTER TABLE users ADD COLUMN bio TEXT DEFAULT \'\''); } catch { /* already exists */ }
 try { db.exec('ALTER TABLE users ADD COLUMN nickname TEXT DEFAULT \'\''); } catch { /* already exists */ }
+try { db.exec('ALTER TABLE users ADD COLUMN default_gallery_uuid TEXT DEFAULT NULL'); } catch { /* already exists */ }
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS categories (
