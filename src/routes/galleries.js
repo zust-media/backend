@@ -3,11 +3,11 @@ import { v4 as uuidv4 } from 'uuid';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { existsSync } from 'fs';
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
-const archiver = require('archiver');
+import { Archiver } from 'archiver';
 import db from '../config/database.js';
+import appConfig from '../config/app.js';
 import { requireAuth } from '../middleware/auth.js';
+import { generateSignedUrl } from '../utils/signing.js';
 import {
   logGalleryCreate,
   logGalleryUpdate,
@@ -42,6 +42,54 @@ function resolveGallery(identifier, userUuid) {
   if (!row) return null;
   if (!row.is_public && row.creator_uuid !== userUuid) return null;
   return row;
+}
+
+function getImageTags(imageId) {
+  const rows = db.prepare(`
+    SELECT t.id FROM tags t
+    JOIN image_tags it ON t.id = it.tag_id
+    WHERE it.image_id = ?
+  `).all(imageId);
+  return rows.map((r) => r.id);
+}
+
+function formatImage(row) {
+  const f = row.filename;
+  const base = `/api/img/${f}`;
+
+  const thumbnail_url = generateSignedUrl(f, base, {
+    w: String(appConfig.thumbnail.defaultWidth),
+    q: String(appConfig.thumbnail.defaultQuality),
+  });
+
+  const preview_url = generateSignedUrl(f, base, {
+    w: String(appConfig.image.maxPreviewWidth),
+    q: String(appConfig.image.defaultQuality),
+  });
+
+  const download_url = generateSignedUrl(f, base, {
+    q: String(appConfig.image.defaultQuality),
+    dl: '1',
+  });
+
+  return {
+    id: row.id,
+    uuid: row.uuid || '',
+    uploader_uuid: row.uploader_uuid || '',
+    filename: row.filename,
+    original_name: row.original_name,
+    mime_type: row.mime_type,
+    file_size: row.file_size,
+    title: row.title,
+    description: row.description,
+    category_id: row.category_id || null,
+    tags: getImageTags(row.id),
+    exif: {},
+    thumbnail_url,
+    preview_url,
+    download_url,
+    created_at: row.created_at,
+  };
 }
 
 router.get('/', requireAuth, (req, res) => {
@@ -80,7 +128,7 @@ router.post('/', requireAuth, (req, res) => {
 
 router.post('/:uuid/images', requireAuth, (req, res) => {
   const userUuid = getUserUuid(req);
-  const gallery = db.prepare('SELECT * FROM galleries WHERE uuid = ?').get(req.params.uuid);
+  const gallery = resolveGallery(req.params.uuid, userUuid);
 
   if (!gallery) return res.status(404).json({ error: '照片夹不存在' });
   if (gallery.creator_uuid !== userUuid) return res.status(403).json({ error: '无权操作此照片夹' });
@@ -114,7 +162,7 @@ router.post('/:uuid/images', requireAuth, (req, res) => {
 
 router.delete('/:uuid/images', requireAuth, (req, res) => {
   const userUuid = getUserUuid(req);
-  const gallery = db.prepare('SELECT * FROM galleries WHERE uuid = ?').get(req.params.uuid);
+  const gallery = resolveGallery(req.params.uuid, userUuid);
 
   if (!gallery) return res.status(404).json({ error: '照片夹不存在' });
   if (gallery.creator_uuid !== userUuid) return res.status(403).json({ error: '无权操作此照片夹' });
@@ -163,7 +211,7 @@ router.get('/:uuid/download', requireAuth, (req, res) => {
   res.setHeader('Content-Type', 'application/zip');
   res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(safeName)}.zip"`);
 
-  const archive = archiver('zip', { zlib: { level: 5 } });
+  const archive = new Archiver('zip', { zlib: { level: 5 } });
   archive.on('error', (err) => {
     console.error('archiver error:', err.message);
     if (!res.headersSent) res.status(500).json({ error: '打包失败' });
@@ -209,8 +257,9 @@ router.get('/:uuid', requireAuth, (req, res) => {
   ).get(gallery.id);
 
   const imageRows = db.prepare(`
-    SELECT i.* FROM images i
+    SELECT i.*, u.uuid AS uploader_uuid FROM images i
     INNER JOIN gallery_images gi ON gi.image_id = i.id
+    LEFT JOIN users u ON i.user_id = u.id
     WHERE gi.gallery_id = ?
     ORDER BY gi.added_at DESC
     LIMIT ? OFFSET ?
@@ -218,7 +267,7 @@ router.get('/:uuid', requireAuth, (req, res) => {
 
   res.json({
     gallery,
-    images: imageRows,
+    images: imageRows.map(formatImage),
     pagination: {
       page,
       limit,
@@ -230,7 +279,7 @@ router.get('/:uuid', requireAuth, (req, res) => {
 
 router.put('/:uuid', requireAuth, (req, res) => {
   const userUuid = getUserUuid(req);
-  const gallery = db.prepare('SELECT * FROM galleries WHERE uuid = ?').get(req.params.uuid);
+  const gallery = resolveGallery(req.params.uuid, userUuid);
 
   if (!gallery) return res.status(404).json({ error: '照片夹不存在' });
   if (gallery.creator_uuid !== userUuid) return res.status(403).json({ error: '无权修改此照片夹' });
