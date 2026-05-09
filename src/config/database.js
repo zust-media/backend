@@ -186,6 +186,7 @@ db.exec(`
 try { db.exec('CREATE INDEX IF NOT EXISTS idx_gallery_images_image ON gallery_images(image_id)'); } catch { /* already exists */ }
 
 try { db.exec('ALTER TABLE galleries ADD COLUMN is_archived INTEGER DEFAULT 0'); } catch { /* already exists */ }
+try { db.exec('ALTER TABLE galleries ADD COLUMN is_public_editable INTEGER DEFAULT 0'); } catch { /* already exists */ }
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS gallery_collaborators (

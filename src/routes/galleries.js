@@ -122,6 +122,7 @@ function mapGalleryRow(row, userUuid) {
   return {
     ...row,
     is_archived: row.is_archived || 0,
+    is_public_editable: row.is_public_editable || 0,
     my_role: role,
     collaborators_count: db.prepare(
       'SELECT COUNT(*) AS cnt FROM gallery_collaborators WHERE gallery_id = ?'
@@ -374,8 +375,8 @@ router.put('/:uuid', requireAuth, (req, res) => {
     return res.status(403).json({ error: '无权修改此照片夹' });
   }
 
-  const before = { name: gallery.name, description: gallery.description, is_public: gallery.is_public };
-  const { name, description, is_public } = req.body;
+  const before = { name: gallery.name, description: gallery.description, is_public: gallery.is_public, is_public_editable: gallery.is_public_editable };
+  const { name, description, is_public, is_public_editable } = req.body;
 
   const newName = name !== undefined ? name.trim() : gallery.name;
   if (!newName) return res.status(400).json({ error: '名称不能为空' });
@@ -390,9 +391,13 @@ router.put('/:uuid', requireAuth, (req, res) => {
     gallery.id
   );
 
+  if (is_public_editable !== undefined && isAdminUser(req)) {
+    db.prepare('UPDATE galleries SET is_public_editable = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(is_public_editable ? 1 : 0, gallery.id);
+  }
+
   const updated = db.prepare('SELECT * FROM galleries WHERE id = ?').get(gallery.id);
   logGalleryUpdate(req, gallery.uuid, before, {
-    name: updated.name, description: updated.description, is_public: updated.is_public,
+    name: updated.name, description: updated.description, is_public: updated.is_public, is_public_editable: updated.is_public_editable,
   });
   res.json({ gallery: mapGalleryRow(updated, userUuid) });
 });
