@@ -165,6 +165,7 @@ function formatImage(row) {
     created_at: row.created_at,
     is_duplicate: row.is_duplicate || 0,
     duplicate_of: row.duplicate_of || null,
+    is_public: row.is_public || 0,
   };
 }
 
@@ -255,10 +256,11 @@ router.post('/upload', requireAuth, (req, res) => {
       return res.status(400).json({ error: '请选择要上传的文件' });
     }
 
-    const { title, description, category_id } = req.body;
+    const { title, description, category_id, is_public } = req.body;
     let tags = [];
     try { tags = JSON.parse(req.body.tags || '[]').map(t => parseInt(t)).filter(n => n > 0); } catch { /* ignore */ }
     const categoryId = parseInt(category_id) || 1;
+    const isPublic = is_public === '1' || is_public === 1 || is_public === true ? 1 : 0;
 
     const filePath = join(uploadsDir, req.file.filename);
 
@@ -277,7 +279,7 @@ router.post('/upload', requireAuth, (req, res) => {
     }
 
     const result = db.prepare(
-      'INSERT INTO images (user_id, uuid, filename, original_name, mime_type, file_size, title, description, category_id, exif, file_hash, is_duplicate, duplicate_of) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO images (user_id, uuid, filename, original_name, mime_type, file_size, title, description, category_id, exif, file_hash, is_duplicate, duplicate_of, is_public) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     ).run(
       req.user.user_id,
       basename(req.file.filename, extname(req.file.filename)),
@@ -292,6 +294,7 @@ router.post('/upload', requireAuth, (req, res) => {
       fileHash,
       isDup,
       originalId,
+      isPublic,
     );
 
     syncTags(result.lastInsertRowid, tags);
@@ -496,6 +499,7 @@ router.post('/batch-upload', requireAuth, (req, res) => {
     const results = [];
     let dupCount = 0;
     const categoryId = parseInt(req.body.category_id) || 1;
+    const isPublic = req.body.is_public === '1' || req.body.is_public === 1 || req.body.is_public === true ? 1 : 0;
     for (const file of req.files) {
       const filePath = join(uploadsDir, file.filename);
 
@@ -515,7 +519,7 @@ router.post('/batch-upload', requireAuth, (req, res) => {
       }
 
       const result = db.prepare(
-        'INSERT INTO images (user_id, uuid, filename, original_name, mime_type, file_size, title, category_id, exif, file_hash, is_duplicate, duplicate_of) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO images (user_id, uuid, filename, original_name, mime_type, file_size, title, category_id, exif, file_hash, is_duplicate, duplicate_of, is_public) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
       ).run(
         req.user.user_id,
         basename(file.filename, extname(file.filename)),
@@ -529,6 +533,7 @@ router.post('/batch-upload', requireAuth, (req, res) => {
         fileHash,
         isDup,
         originalId,
+        isPublic,
       );
       try {
         const exif = await extractExif(filePath, file.mimetype);
@@ -980,25 +985,26 @@ router.put('/detail/:id', requireAuth, (req, res) => {
   const id = parseInt(req.params.id);
   if (!id) return res.status(400).json({ error: '无效的图片ID' });
 
-  const image = db.prepare('SELECT user_id, uuid, title, description, category_id FROM images WHERE id = ?').get(id);
+  const image = db.prepare('SELECT user_id, uuid, title, description, category_id, is_public FROM images WHERE id = ?').get(id);
   if (!image) return res.status(404).json({ error: '图片不存在' });
   if (req.user.role !== 'admin' && image.user_id !== req.user.user_id) {
     return res.status(403).json({ error: '无权限修改此图片' });
   }
 
-  const { title, description, tags, category_id } = req.body;
+  const { title, description, tags, category_id, is_public } = req.body;
 
-  const before = { title: image.title || '', description: image.description || '', category_id: image.category_id || null };
+  const before = { title: image.title || '', description: image.description || '', category_id: image.category_id || null, is_public: image.is_public || 0 };
   if (tags !== undefined) {
     before.tags = getImageTags(id).map(t => t.name);
   }
 
-  if (title !== undefined || description !== undefined || category_id !== undefined) {
+  if (title !== undefined || description !== undefined || category_id !== undefined || is_public !== undefined) {
     const updates = [];
     const params = [];
     if (title !== undefined) { updates.push('title = ?'); params.push(title); }
     if (description !== undefined) { updates.push('description = ?'); params.push(description); }
     if (category_id !== undefined) { updates.push('category_id = ?'); params.push(parseInt(category_id) || null); }
+    if (is_public !== undefined) { updates.push('is_public = ?'); params.push(is_public ? 1 : 0); }
     if (updates.length > 0) {
       params.push(id);
       db.prepare(`UPDATE images SET ${updates.join(', ')} WHERE id = ?`).run(...params);
@@ -1009,7 +1015,7 @@ router.put('/detail/:id', requireAuth, (req, res) => {
     syncTags(id, tags);
   }
 
-  const after = { title: title !== undefined ? title : before.title, description: description !== undefined ? description : before.description, category_id: category_id !== undefined ? (parseInt(category_id) || null) : before.category_id };
+  const after = { title: title !== undefined ? title : before.title, description: description !== undefined ? description : before.description, category_id: category_id !== undefined ? (parseInt(category_id) || null) : before.category_id, is_public: is_public !== undefined ? (is_public ? 1 : 0) : before.is_public };
   if (tags !== undefined) {
     after.tags = (Array.isArray(tags) ? tags : []).filter(t => typeof t === 'string' ? t.trim() : t);
   } else {
@@ -1220,7 +1226,7 @@ router.post('/batch-delete', requireAuth, (req, res) => {
  *               $ref: '#/components/schemas/ApiError'
  */
 router.post('/batch-update', requireAuth, (req, res) => {
-  const { ids, category_id, tags, add_tags, remove_tags } = req.body || {};
+  const { ids, category_id, tags, add_tags, remove_tags, is_public } = req.body || {};
   if (!Array.isArray(ids) || ids.length === 0) {
     return res.status(400).json({ error: '请提供要更新的图片ID列表' });
   }
@@ -1241,6 +1247,12 @@ router.post('/batch-update', requireAuth, (req, res) => {
     const catId = parseInt(category_id) || null;
     const catPlaceholders = validIds.map(() => '?').join(',');
     db.prepare(`UPDATE images SET category_id = ? WHERE id IN (${catPlaceholders})`).run(catId, ...validIds);
+  }
+
+  if (is_public !== undefined) {
+    const pubVal = is_public ? 1 : 0;
+    const pubPlaceholders = validIds.map(() => '?').join(',');
+    db.prepare(`UPDATE images SET is_public = ? WHERE id IN (${pubPlaceholders})`).run(pubVal, ...validIds);
   }
 
   if (tags !== undefined && Array.isArray(tags)) {

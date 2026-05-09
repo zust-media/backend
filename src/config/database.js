@@ -113,6 +113,8 @@ try { db.exec('ALTER TABLE images ADD COLUMN duplicate_of INTEGER DEFAULT NULL')
 try { db.exec('CREATE INDEX IF NOT EXISTS idx_images_file_hash ON images(file_hash)'); } catch { /* already exists */ }
 try { db.exec('CREATE INDEX IF NOT EXISTS idx_images_duplicate_of ON images(duplicate_of)'); } catch { /* already exists */ }
 
+try { db.exec('ALTER TABLE images ADD COLUMN is_public INTEGER DEFAULT 0'); } catch { /* already exists */ }
+
 {
   const hasDefaultCat = db.prepare('SELECT id FROM categories WHERE slug = ?').get('uncategorized');
   if (!hasDefaultCat) {

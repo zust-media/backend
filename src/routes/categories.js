@@ -70,6 +70,7 @@ function formatImage(row) {
     preview_url,
     download_url,
     created_at: row.created_at,
+    is_public: row.is_public || 0,
   };
 }
 
