@@ -96,6 +96,20 @@ const options = {
             created_at: { type: 'string', format: 'date-time', description: '创建时间' },
           },
         },
+        Gallery: {
+          type: 'object',
+          properties: {
+            id: { type: 'integer', description: '照片夹ID' },
+            uuid: { type: 'string', description: '照片夹UUID' },
+            name: { type: 'string', description: '照片夹名称' },
+            description: { type: 'string', description: '照片夹描述' },
+            creator_uuid: { type: 'string', description: '创建者UUID' },
+            is_public: { type: 'integer', description: '是否公开 (0/1)' },
+            image_count: { type: 'integer', description: '图片数量' },
+            created_at: { type: 'string', format: 'date-time', description: '创建时间' },
+            updated_at: { type: 'string', format: 'date-time', description: '更新时间' },
+          },
+        },
         Pagination: {
           type: 'object',
           properties: {

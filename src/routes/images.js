@@ -1281,6 +1281,62 @@ router.post('/batch-update', requireAuth, (req, res) => {
   logBatchImageUpdate(req, validIds, validUuids, changes);
 });
 
+/**
+ * @swagger
+ * /api/images/batch-download:
+ *   post:
+ *     tags: [Images]
+ *     summary: 批量下载压缩打包图片
+ *     description: 将选中的图片压缩后打包为 ZIP 下载，支持调整输出格式、质量、宽度和水印。
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: query
+ *         name: format
+ *         schema: { type: string, enum: [jpeg, png, webp], default: jpeg }
+ *         description: 输出图片格式
+ *       - in: query
+ *         name: q
+ *         schema: { type: integer, default: 85 }
+ *         description: 图片质量（1-100）
+ *       - in: query
+ *         name: w
+ *         schema: { type: integer }
+ *         description: 最大宽度（像素），不传则不缩放
+ *       - in: query
+ *         name: m
+ *         schema: { type: string }
+ *         description: 水印文件名（可选）
+ *       - in: query
+ *         name: filename
+ *         schema: { type: string }
+ *         description: 下载的 ZIP 文件名（不含 .zip 后缀）
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [image_uuids]
+ *             properties:
+ *               image_uuids:
+ *                 type: array
+ *                 items: { type: string }
+ *                 description: 图片UUID列表
+ *     responses:
+ *       200:
+ *         description: ZIP 文件流
+ *         content:
+ *           application/zip:
+ *             schema:
+ *               type: string
+ *               format: binary
+ *       400:
+ *         description: 参数错误
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ */
 router.post('/batch-download', requireAuth, async (req, res) => {
   const { image_uuids } = req.body || {};
   if (!Array.isArray(image_uuids) || image_uuids.length === 0) {

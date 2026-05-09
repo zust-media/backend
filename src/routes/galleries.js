@@ -183,6 +183,61 @@ router.delete('/:uuid/images', requireAuth, (req, res) => {
   res.json({ message: `成功移除 ${removed} 张图片`, removed });
 });
 
+/**
+ * @swagger
+ * /api/galleries/{uuid}/download:
+ *   get:
+ *     tags: [Galleries]
+ *     summary: 下载照片夹内所有图片为压缩包
+ *     description: 将照片夹内的所有图片压缩后打包为 ZIP 下载，支持输出格式调整。
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: uuid
+ *         required: true
+ *         schema: { type: string }
+ *         description: 照片夹UUID
+ *       - in: query
+ *         name: format
+ *         schema: { type: string, enum: [jpeg, png, webp], default: jpeg }
+ *         description: 输出图片格式
+ *       - in: query
+ *         name: q
+ *         schema: { type: integer, default: 85 }
+ *         description: 图片质量（1-100）
+ *       - in: query
+ *         name: w
+ *         schema: { type: integer }
+ *         description: 最大宽度（像素），不传则不缩放
+ *       - in: query
+ *         name: m
+ *         schema: { type: string }
+ *         description: 水印文件名（可选）
+ *       - in: query
+ *         name: filename
+ *         schema: { type: string }
+ *         description: 下载的 ZIP 文件名（不含 .zip 后缀，默认使用照片夹名）
+ *     responses:
+ *       200:
+ *         description: ZIP 文件流
+ *         content:
+ *           application/zip:
+ *             schema:
+ *               type: string
+ *               format: binary
+ *       400:
+ *         description: 照片夹中没有图片
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ *       404:
+ *         description: 照片夹不存在
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ApiError'
+ */
 router.get('/:uuid/download', requireAuth, async (req, res) => {
   const userUuid = getUserUuid(req);
   const gallery = resolveGallery(req.params.uuid, userUuid);
