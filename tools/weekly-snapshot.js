@@ -91,24 +91,11 @@ function generateNextSnapshotVersion() {
 
 /**
  * 获取当前周快照的基础标签
-<<<<<<< HEAD
- * 查找最近的正式 release 标签 (v*)
- */
-function getBaseTag() {
-<<<<<<< HEAD
-  try {
-    const tags = execSync('git tag -l "v*" --sort=-creatordate', { encoding: 'utf-8' }).trim().split('\n');
-    return tags[0] || null;
-=======
-  // 先查找所有周快照标签
-  const weeklyTags = getWeeklySnapshotTags();
-=======
  * 逻辑：获取最新发布的任何类型的 tag（无论是 Pre Release、Release 还是每周快照）
  */
 function getBaseTag() {
   // 获取所有标签，按创建时间倒序排列
   const allTags = callCommand('git tag -l --sort=-creatordate').split('\n').filter(Boolean);
->>>>>>> 9477064 (fix: 修复最近 Tag 检测逻辑)
   
   // 返回最新的标签（如果有）
   if (allTags.length > 0) {
@@ -126,7 +113,6 @@ function getLastWeeklySnapshot() {
   try {
     const weeklyTags = getWeeklySnapshotTags();
     return weeklyTags.length > 0 ? weeklyTags[weeklyTags.length - 1] : null;
->>>>>>> 721b2a9 (fix: 修复了每周快照 CHANGELOG 增量识别错误的问题)
   } catch {
     return null;
   }
