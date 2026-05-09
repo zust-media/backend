@@ -78,6 +78,9 @@ function getImageTags(imageId) {
 }
 
 function formatImage(row) {
+  let exif = {};
+  try { exif = JSON.parse(row.exif || '{}'); } catch { /* ignore */ }
+
   const f = row.filename;
   const base = `/api/img/${f}`;
 
@@ -108,7 +111,7 @@ function formatImage(row) {
     description: row.description,
     category_id: row.category_id || null,
     tags: getImageTags(row.id),
-    exif: {},
+    exif,
     thumbnail_url,
     preview_url,
     download_url,
@@ -540,7 +543,7 @@ router.post('/like', requireAuth, (req, res) => {
   const userUuid = getUserUuid(req);
   if (!userUuid) return res.status(401).json({ error: '未登录' });
 
-  const { image_uuid } = req.body || {};
+  const { image_uuid, action } = req.body || {};
   if (!image_uuid) return res.status(400).json({ error: '请提供图片UUID' });
 
   const imageId = resolveImageId(image_uuid);
@@ -569,11 +572,15 @@ router.post('/like', requireAuth, (req, res) => {
   ).get(gallery.id, imageId);
 
   if (existing) {
-    db.prepare(
-      'DELETE FROM gallery_images WHERE gallery_id = ? AND image_id = ?'
-    ).run(gallery.id, imageId);
-    db.prepare('UPDATE galleries SET updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(gallery.id);
-    res.json({ liked: false, gallery_uuid: gallery.uuid });
+    if (action === 'add') {
+      res.json({ liked: true, already: true, gallery_uuid: gallery.uuid });
+    } else {
+      db.prepare(
+        'DELETE FROM gallery_images WHERE gallery_id = ? AND image_id = ?'
+      ).run(gallery.id, imageId);
+      db.prepare('UPDATE galleries SET updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(gallery.id);
+      res.json({ liked: false, gallery_uuid: gallery.uuid });
+    }
   } else {
     db.prepare(
       'INSERT OR IGNORE INTO gallery_images (gallery_id, image_id) VALUES (?, ?)'
