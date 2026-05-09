@@ -167,6 +167,9 @@ function classifyCommits(commits, withCommitizen = false) {
 
   for (const commit of commits) {
     if (commit.message.includes('[skip changelog]')) continue;
+    
+    // 忽略 CI 自动提交的版本更新提交
+    if (commit.message.match(/^chore:\s*update\s+version\s+to\s+.+/i)) continue;
 
     const category = parseCategory(commit.message);
     if (!category) continue;
