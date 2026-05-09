@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { existsSync } from 'fs';
-import { Archiver } from 'archiver';
+import { ZipArchive } from 'archiver';
 import db from '../config/database.js';
 import appConfig from '../config/app.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -211,7 +211,7 @@ router.get('/:uuid/download', requireAuth, (req, res) => {
   res.setHeader('Content-Type', 'application/zip');
   res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(safeName)}.zip"`);
 
-  const archive = new Archiver('zip', { zlib: { level: 5 } });
+  const archive = new ZipArchive({ zlib: { level: 5 } });
   archive.on('error', (err) => {
     console.error('archiver error:', err.message);
     if (!res.headersSent) res.status(500).json({ error: '打包失败' });
