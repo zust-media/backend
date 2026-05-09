@@ -50,7 +50,7 @@ watermark:
 
 # 数据库设置
 database:
-  filename: "data/zustmedia.db"
+  filename: "data/zustmedia1.db"
 
 # 日志设置
 logging:

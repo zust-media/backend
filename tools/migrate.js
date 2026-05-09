@@ -100,8 +100,8 @@ try { db.exec('ALTER TABLE users ADD COLUMN default_gallery_uuid TEXT DEFAULT NU
           password TEXT NOT NULL,
           role TEXT NOT NULL DEFAULT 'user' CHECK(role IN ('admin', 'super_admin', 'user')),
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          uuid TEXT,
-          slug TEXT,
+          uuid TEXT UNIQUE,
+          slug TEXT UNIQUE,
           bio TEXT DEFAULT '',
           nickname TEXT DEFAULT '',
           default_gallery_uuid TEXT DEFAULT NULL
