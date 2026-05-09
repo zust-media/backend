@@ -18,7 +18,7 @@ const typeMap = {
   doc: '文档 | Docs',
   style: '其他 | Other',
   build: '其他 | Other',
-  ci: '其他 | Other',
+  ci: '自动化 | CI',
   test: '其他 | Other',
   chore: '其他 | Other',
 };
@@ -160,6 +160,7 @@ function classifyCommits(commits, withCommitizen = false) {
     '改进 | Improved': [],
     '文档 | Docs': [],
     '其他 | Other': [],
+    '自动化 | CI': [],
   };
 
   const contributors = new Set();
