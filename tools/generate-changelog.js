@@ -244,11 +244,11 @@ function generateMd(classifiedData, tagName, latest, withHash = false) {
 
     for (const item of categories[category]) {
       let line = `* ${item.message}`;
-      if (withHash && repoUrl) {
+      /*if (withHash && repoUrl) {
         line += ` ([${item.hash}](${repoUrl}/commit/${item.hash}))`;
       } else if (withHash) {
         line += ` (${item.hash})`;
-      }
+      }*/
       // 添加提交者信息
       if (item.author && item.author !== 'web-flow') {
         if (repoUrl) {
