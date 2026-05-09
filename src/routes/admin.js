@@ -92,13 +92,14 @@ router.get('/stats', requireAdmin, (_req, res) => {
   const duplicateCount = db.prepare('SELECT COUNT(*) as cnt FROM images WHERE is_duplicate = 1').get().cnt;
 
   const recentImages = db.prepare(`
-    SELECT i.id, i.uuid, i.title, i.original_name, i.file_size, i.created_at, u.uuid as uploader_uuid
+    SELECT i.id, i.uuid, i.title, i.original_name, i.file_size, i.created_at,
+           u.uuid as uploader_uuid, u.nickname as uploader_nickname, u.username as uploader_username, u.slug as uploader_slug
     FROM images i JOIN users u ON i.user_id = u.id
     ORDER BY i.created_at DESC LIMIT 5
   `).all();
 
   const topUploaders = db.prepare(`
-    SELECT u.uuid, u.nickname, u.role, COUNT(i.id) as cnt
+    SELECT u.uuid, u.nickname, u.username, u.slug, u.role, COUNT(i.id) as cnt
     FROM users u LEFT JOIN images i ON i.user_id = u.id
     GROUP BY u.id ORDER BY cnt DESC LIMIT 5
   `).all();
