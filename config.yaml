@@ -1,0 +1,58 @@
+# ================================================================
+# ZustMedia 后端配置文件
+# 修改此文件后重启服务器生效
+# ================================================================
+
+# 服务器设置
+server:
+  port: 8080
+  host: "0.0.0.0"
+
+# JWT 密钥（请务必修改为随机字符串）
+jwt:
+  secret: "zustmedia_jwt_secret_key_2024_change_in_production"
+  captcha_secret: "zustmedia_captcha_jwt_secret_2024"
+
+# 安全设置
+security:
+  signing_key: "zustmedia_signing_key_change_me"
+
+# 文件上传限制
+upload:
+  max_file_size_mb: 50
+  max_batch_count: 20
+  allowed_types:
+    - "image/jpeg"
+    - "image/png"
+    - "image/gif"
+    - "image/webp"
+    - "image/svg+xml"
+
+# 图片处理设置
+image:
+  default_quality: 85
+  max_preview_width: 2560
+  force_watermark: false
+  default_watermark: "mark.png"
+
+# 缩略图设置
+thumbnail:
+  default_width: 480
+  default_quality: 75
+
+# 水印设置
+watermark:
+  margin_x: 0.03
+  margin_y: 0.03
+  opacity: 0.3
+  size_ratio: 0.15
+  position: "bottom-right"
+
+# 数据库设置
+database:
+  filename: "data/zustmedia.db"
+
+# 日志设置
+logging:
+  dir: "logs"
+  level: "info"

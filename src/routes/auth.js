@@ -3,12 +3,13 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import db from '../config/database.js';
+import config from '../config/app.js';
 import { validateNotBlocked } from '../config/blocked-keywords.js';
 import { consumeRegToken } from '../config/captcha-store.js';
 import { generateToken, requireAuth } from '../middleware/auth.js';
 import { logUserUpdate } from '../utils/logger.js';
 
-const CAPTCHA_JWT_SECRET = 'zustmedia_captcha_jwt_secret_2024';
+const CAPTCHA_JWT_SECRET = config.security.captchaJwtSecret;
 
 /**
  * @swagger

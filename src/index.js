@@ -19,7 +19,7 @@ import galleriesRoutes from './routes/galleries.js';
 import adminRoutes from './routes/admin.js';
 
 const app = express();
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT || config.server?.port || 8080;
 
 app.use(cors({
   origin(_origin, callback) {

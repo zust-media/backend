@@ -1,7 +1,8 @@
 import jwt from 'jsonwebtoken';
 import db from '../config/database.js';
+import config from '../config/app.js';
 
-const JWT_SECRET = 'zustmedia_jwt_secret_key_2024_change_in_production';
+const JWT_SECRET = config.security.jwtSecret;
 
 export function generateToken(payload) {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' });

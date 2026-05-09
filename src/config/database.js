@@ -4,11 +4,12 @@ import { dirname, join } from 'path';
 import { existsSync } from 'fs';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
+import config from './app.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const dbPath = join(__dirname, '..', '..', 'data', 'zustmedia.sqlite');
+const dbPath = join(__dirname, '..', '..', config.database?.filename || 'data/zustmedia.sqlite');
 const isNew = !existsSync(dbPath);
 
 const db = new Database(dbPath);

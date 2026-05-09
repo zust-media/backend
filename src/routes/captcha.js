@@ -3,9 +3,10 @@ import svgCaptcha from 'svg-captcha';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { setCaptcha, getCaptcha, deleteCaptcha, setRegToken } from '../config/captcha-store.js';
+import config from '../config/app.js';
 
 const router = Router();
-const CAPTCHA_JWT_SECRET = 'zustmedia_captcha_jwt_secret_2024';
+const CAPTCHA_JWT_SECRET = config.security.captchaJwtSecret;
 
 /**
  * @swagger
