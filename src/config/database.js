@@ -37,6 +37,14 @@ db.exec(`
   )
 `);
 
+// 确保默认分类存在（上传图片时 category_id 默认回退到 id=1）
+{
+  const hasDefaultCat = db.prepare('SELECT id FROM categories WHERE slug = ?').get('uncategorized');
+  if (!hasDefaultCat) {
+    try { db.prepare('INSERT INTO categories (name, slug, description) VALUES (?, ?, ?)').run('无分类', 'uncategorized', '默认分类'); } catch { /* may already exist */ }
+  }
+}
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS images (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
