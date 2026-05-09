@@ -10,6 +10,7 @@ import exifr from 'exifr';
 import db from '../config/database.js';
 import appConfig from '../config/app.js';
 import { requireAuth } from '../middleware/auth.js';
+import { requireAdminOrTempAuth } from '../middleware/auth.js';
 import { generateSignedUrl } from '../utils/signing.js';
 import { logImageUpload, logImageDelete, logImageEdit, logBatchImageDelete, logBatchImageUpdate } from '../utils/logger.js';
 import { streamZipDownload } from '../utils/zip-stream.js';
@@ -882,7 +883,7 @@ router.get('/by-uuid/:uuid', (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/ApiError'
  */
-router.post('/sign-url', (req, res) => {
+router.post('/sign-url', requireAdminOrTempAuth, (req, res) => {
   const { filename, w, q, m, dl } = req.body || {};
   if (!filename) return res.status(400).json({ error: '缺少 filename 参数' });
 

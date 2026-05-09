@@ -183,6 +183,19 @@ db.exec(`
 
 try { db.exec('CREATE INDEX IF NOT EXISTS idx_gallery_images_image ON gallery_images(image_id)'); } catch { /* already exists */ }
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS temp_auth_codes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT UNIQUE NOT NULL,
+    created_by TEXT NOT NULL,
+    expires_at DATETIME NOT NULL,
+    max_uses INTEGER DEFAULT NULL,
+    use_count INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (created_by) REFERENCES users(uuid) ON DELETE CASCADE
+  )
+`);
+
 if (isNew) {
   const insertUser = db.prepare(
     'INSERT OR IGNORE INTO users (username, password, role, uuid) VALUES (?, ?, ?, ?)'

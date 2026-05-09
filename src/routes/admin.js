@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import crypto from 'crypto';
 import db from '../config/database.js';
 import { requireAdmin } from '../middleware/auth.js';
 
@@ -156,6 +157,39 @@ router.get('/logs', requireAdmin, (req, res) => {
     actions,
     pagination: { page, limit, total, total_pages: Math.ceil(total / limit) || 1 },
   });
+});
+
+router.get('/auth-codes', requireAdmin, (_req, res) => {
+  const rows = db.prepare(
+    'SELECT id, code, created_by, expires_at, max_uses, use_count, created_at FROM temp_auth_codes ORDER BY created_at DESC'
+  ).all();
+  res.json({ codes: rows });
+});
+
+router.post('/auth-codes', requireAdmin, (req, res) => {
+  const { hours, max_uses } = req.body || {};
+  const h = parseInt(hours) || 24;
+  const expiresAt = new Date(Date.now() + h * 3600000).toISOString();
+  const code = 'tmp_' + crypto.randomBytes(16).toString('hex');
+  const creatorUuid = req.user?.uuid || '';
+
+  db.prepare(
+    'INSERT INTO temp_auth_codes (code, created_by, expires_at, max_uses) VALUES (?, ?, ?, ?)'
+  ).run(code, creatorUuid, expiresAt, max_uses ? parseInt(max_uses) : null);
+
+  res.status(201).json({
+    code,
+    expires_at: expiresAt,
+    max_uses: max_uses ? parseInt(max_uses) : null,
+  });
+});
+
+router.delete('/auth-codes/:id', requireAdmin, (req, res) => {
+  const id = parseInt(req.params.id);
+  const row = db.prepare('SELECT id FROM temp_auth_codes WHERE id = ?').get(id);
+  if (!row) return res.status(404).json({ error: '授权码不存在' });
+  db.prepare('DELETE FROM temp_auth_codes WHERE id = ?').run(id);
+  res.json({ message: '授权码已删除' });
 });
 
 export default router;
