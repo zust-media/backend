@@ -70,23 +70,28 @@ const router = Router();
 router.post('/register', (req, res) => {
   const { username, password, regToken } = req.body;
 
-  if (!regToken) {
-    return res.status(401).json({ error: '未经授权的请求' });
-  }
+  const existingCount = db.prepare('SELECT COUNT(*) as cnt FROM users').get().cnt;
+  const isFirstUser = existingCount === 0;
 
-  let jti;
-  try {
-    const decoded = jwt.verify(regToken, CAPTCHA_JWT_SECRET);
-    if (decoded.purpose !== 'registration') {
+  if (!isFirstUser) {
+    if (!regToken) {
       return res.status(401).json({ error: '未经授权的请求' });
     }
-    jti = decoded.jti;
-  } catch {
-    return res.status(401).json({ error: '未经授权的请求' });
-  }
 
-  if (!consumeRegToken(jti)) {
-    return res.status(401).json({ error: '未经授权的请求' });
+    let jti;
+    try {
+      const decoded = jwt.verify(regToken, CAPTCHA_JWT_SECRET);
+      if (decoded.purpose !== 'registration') {
+        return res.status(401).json({ error: '未经授权的请求' });
+      }
+      jti = decoded.jti;
+    } catch {
+      return res.status(401).json({ error: '未经授权的请求' });
+    }
+
+    if (!consumeRegToken(jti)) {
+      return res.status(401).json({ error: '未经授权的请求' });
+    }
   }
 
   const name = (username || '').trim();
@@ -108,10 +113,11 @@ router.post('/register', (req, res) => {
     return res.status(400).json({ error: '用户名已存在' });
   }
 
+  const role = isFirstUser ? 'admin' : 'user';
   const hashed = bcrypt.hashSync(password, 10);
-  db.prepare('INSERT INTO users (username, password, role, uuid) VALUES (?, ?, ?, ?)').run(name, hashed, 'user', crypto.randomUUID());
+  db.prepare('INSERT INTO users (username, password, role, uuid) VALUES (?, ?, ?, ?)').run(name, hashed, role, crypto.randomUUID());
 
-  res.status(201).json({ message: '注册成功' });
+  res.status(201).json({ message: isFirstUser ? '超级管理员注册成功' : '注册成功', role });
 });
 
 /**

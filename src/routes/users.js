@@ -471,7 +471,7 @@ router.delete('/:id', requireAdmin, (req, res) => {
 
   const user = db.prepare('SELECT id, uuid, username, role FROM users WHERE id = ?').get(id);
   if (!user) return res.status(404).json({ error: '用户不存在' });
-  if (user.role === 'admin') return res.status(400).json({ error: '不能删除管理员账户' });
+  if (id === 1) return res.status(400).json({ error: '不能删除超级管理员账户' });
 
   const images = db.prepare('SELECT filename FROM images WHERE user_id = ?').all(id);
   for (const img of images) {

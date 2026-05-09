@@ -1,16 +1,13 @@
 import Database from 'better-sqlite3';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { existsSync } from 'fs';
 import crypto from 'crypto';
-import bcrypt from 'bcryptjs';
 import config from './app.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const dbPath = join(__dirname, '..', '..', config.database?.filename || 'data/zustmedia.sqlite');
-const isNew = !existsSync(dbPath);
 
 const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
@@ -223,13 +220,5 @@ db.exec(`
     FOREIGN KEY (created_by) REFERENCES users(uuid) ON DELETE CASCADE
   )
 `);
-
-if (isNew) {
-  const insertUser = db.prepare(
-    'INSERT OR IGNORE INTO users (username, password, role, uuid) VALUES (?, ?, ?, ?)'
-  );
-  insertUser.run('admin', bcrypt.hashSync('admin123', 10), 'admin', crypto.randomUUID());
-  insertUser.run('user', bcrypt.hashSync('user123', 10), 'user', crypto.randomUUID());
-}
 
 export default db;
