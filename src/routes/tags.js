@@ -179,14 +179,35 @@ router.get('/:id', (req, res) => {
   const total = db.prepare('SELECT COUNT(*) as count FROM image_tags WHERE tag_id = ?').get(tag.id).count;
   const totalPages = Math.ceil(total / limit) || 1;
 
-  const rows = db.prepare(`
-    SELECT i.*, u.uuid as uploader_uuid
-    FROM images i
-    JOIN users u ON i.user_id = u.id
-    JOIN image_tags it ON it.image_id = i.id
-    WHERE it.tag_id = ?
-    ORDER BY i.created_at DESC LIMIT ? OFFSET ?
-  `).all(tag.id, limit, offset);
+  let rows;
+  if (req.user && req.user.role === 'admin') {
+    rows = db.prepare(`
+      SELECT i.*, u.uuid as uploader_uuid
+      FROM images i
+      JOIN users u ON i.user_id = u.id
+      JOIN image_tags it ON it.image_id = i.id
+      WHERE it.tag_id = ?
+      ORDER BY i.created_at DESC LIMIT ? OFFSET ?
+    `).all(tag.id, limit, offset);
+  } else if (req.user) {
+    rows = db.prepare(`
+      SELECT i.*, u.uuid as uploader_uuid
+      FROM images i
+      JOIN users u ON i.user_id = u.id
+      JOIN image_tags it ON it.image_id = i.id
+      WHERE it.tag_id = ? AND (i.is_public = 1 OR u.uuid = ?)
+      ORDER BY i.created_at DESC LIMIT ? OFFSET ?
+    `).all(tag.id, req.user.uuid, limit, offset);
+  } else {
+    rows = db.prepare(`
+      SELECT i.*, u.uuid as uploader_uuid
+      FROM images i
+      JOIN users u ON i.user_id = u.id
+      JOIN image_tags it ON it.image_id = i.id
+      WHERE it.tag_id = ? AND i.is_public = 1
+      ORDER BY i.created_at DESC LIMIT ? OFFSET ?
+    `).all(tag.id, limit, offset);
+  }
 
   res.json({
     tag,

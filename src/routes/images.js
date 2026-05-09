@@ -672,6 +672,15 @@ router.get('/list', (req, res) => {
     params.push(categoryId);
   }
 
+  if (!req.user || req.user.role !== 'admin') {
+    if (req.user) {
+      conditions.push('(i.is_public = 1 OR u.uuid = ?)');
+      params.push(req.user.uuid);
+    } else {
+      conditions.push('i.is_public = 1');
+    }
+  }
+
   if (search) {
     conditions.push('(i.title LIKE ? OR i.original_name LIKE ?)');
     params.push(`%${search}%`, `%${search}%`);

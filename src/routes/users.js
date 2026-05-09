@@ -579,11 +579,22 @@ router.get('/:uuid', (req, res) => {
   const total = db.prepare('SELECT COUNT(*) as count FROM images WHERE user_id = ?').get(user.id).count;
   const totalPages = Math.ceil(total / limit) || 1;
 
-  const images = db.prepare(`
-    SELECT i.*, u.uuid as uploader_uuid
-    FROM images i JOIN users u ON i.user_id = u.id
-    WHERE i.user_id = ? ORDER BY i.created_at DESC LIMIT ? OFFSET ?
-  `).all(user.id, limit, offset);
+  let images;
+  const isSelf = req.user && req.user.uuid === user.uuid;
+  const isAdmin = req.user && req.user.role === 'admin';
+  if (isSelf || isAdmin) {
+    images = db.prepare(`
+      SELECT i.*, u.uuid as uploader_uuid
+      FROM images i JOIN users u ON i.user_id = u.id
+      WHERE i.user_id = ? ORDER BY i.created_at DESC LIMIT ? OFFSET ?
+    `).all(user.id, limit, offset);
+  } else {
+    images = db.prepare(`
+      SELECT i.*, u.uuid as uploader_uuid
+      FROM images i JOIN users u ON i.user_id = u.id
+      WHERE i.user_id = ? AND i.is_public = 1 ORDER BY i.created_at DESC LIMIT ? OFFSET ?
+    `).all(user.id, limit, offset);
+  }
 
   res.json({
     user: formatUser(user),

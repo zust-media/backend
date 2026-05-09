@@ -177,12 +177,29 @@ router.get('/:id', (req, res) => {
   const total = db.prepare('SELECT COUNT(*) as count FROM images WHERE category_id = ?').get(category.id).count;
   const totalPages = Math.ceil(total / limit) || 1;
 
-  const images = db.prepare(`
-    SELECT i.*, u.uuid as uploader_uuid
-    FROM images i JOIN users u ON i.user_id = u.id
-    WHERE i.category_id = ?
-    ORDER BY i.created_at DESC LIMIT ? OFFSET ?
-  `).all(category.id, limit, offset);
+  let images;
+  if (req.user && req.user.role === 'admin') {
+    images = db.prepare(`
+      SELECT i.*, u.uuid as uploader_uuid
+      FROM images i JOIN users u ON i.user_id = u.id
+      WHERE i.category_id = ?
+      ORDER BY i.created_at DESC LIMIT ? OFFSET ?
+    `).all(category.id, limit, offset);
+  } else if (req.user) {
+    images = db.prepare(`
+      SELECT i.*, u.uuid as uploader_uuid
+      FROM images i JOIN users u ON i.user_id = u.id
+      WHERE i.category_id = ? AND (i.is_public = 1 OR u.uuid = ?)
+      ORDER BY i.created_at DESC LIMIT ? OFFSET ?
+    `).all(category.id, req.user.uuid, limit, offset);
+  } else {
+    images = db.prepare(`
+      SELECT i.*, u.uuid as uploader_uuid
+      FROM images i JOIN users u ON i.user_id = u.id
+      WHERE i.category_id = ? AND i.is_public = 1
+      ORDER BY i.created_at DESC LIMIT ? OFFSET ?
+    `).all(category.id, limit, offset);
+  }
 
   res.json({
     category,
