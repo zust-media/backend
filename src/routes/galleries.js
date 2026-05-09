@@ -31,6 +31,31 @@ function resolveImageId(target) {
   return byId ? byId.id : null;
 }
 
+function getGalleryRole(galleryId, userUuid) {
+  if (!userUuid) return null;
+  const row = db.prepare(
+    'SELECT role FROM gallery_collaborators WHERE gallery_id = ? AND user_uuid = ?'
+  ).get(galleryId, userUuid);
+  return row ? row.role : null;
+}
+
+function userCanAddRemove(galleryId, userUuid, isAdmin) {
+  if (isAdmin) return true;
+  const role = getGalleryRole(galleryId, userUuid);
+  return role === 'owner' || role === 'admin' || role === 'user';
+}
+
+function userCanManage(galleryId, userUuid, isAdmin) {
+  if (isAdmin) return true;
+  const role = getGalleryRole(galleryId, userUuid);
+  return role === 'owner' || role === 'admin';
+}
+
+function userIsOwner(galleryId, userUuid, isAdmin) {
+  if (isAdmin) return true;
+  return getGalleryRole(galleryId, userUuid) === 'owner';
+}
+
 function resolveGallery(identifier, userUuid, isAdmin) {
   let row = db.prepare('SELECT * FROM galleries WHERE uuid = ?').get(identifier);
   if (!row && !isNaN(parseInt(identifier))) {
@@ -38,6 +63,7 @@ function resolveGallery(identifier, userUuid, isAdmin) {
   }
   if (!row) return null;
   if (isAdmin) return row;
+  if (userUuid && getGalleryRole(row.id, userUuid)) return row;
   if (!row.is_public && row.creator_uuid !== userUuid) return null;
   return row;
 }
@@ -91,6 +117,18 @@ function formatImage(row) {
   };
 }
 
+function mapGalleryRow(row, userUuid) {
+  const role = userUuid ? getGalleryRole(row.id, userUuid) : null;
+  return {
+    ...row,
+    is_archived: row.is_archived || 0,
+    my_role: role,
+    collaborators_count: db.prepare(
+      'SELECT COUNT(*) AS cnt FROM gallery_collaborators WHERE gallery_id = ?'
+    ).get(row.id).cnt,
+  };
+}
+
 router.get('/', requireAuth, (req, res) => {
   const userUuid = getUserUuid(req);
   if (!userUuid) return res.status(401).json({ error: '未登录' });
@@ -106,12 +144,14 @@ router.get('/', requireAuth, (req, res) => {
     rows = db.prepare(`
       SELECT g.*, (SELECT COUNT(*) FROM gallery_images gi WHERE gi.gallery_id = g.id) AS image_count
       FROM galleries g
-      WHERE g.creator_uuid = ?
+      LEFT JOIN gallery_collaborators gc ON gc.gallery_id = g.id AND gc.user_uuid = ?
+      WHERE g.creator_uuid = ? OR gc.user_uuid IS NOT NULL
+      GROUP BY g.id
       ORDER BY g.updated_at DESC
-    `).all(userUuid);
+    `).all(userUuid, userUuid);
   }
 
-  res.json({ galleries: rows });
+  res.json({ galleries: rows.map(r => mapGalleryRow(r, userUuid)) });
 });
 
 router.post('/', requireAuth, (req, res) => {
@@ -130,8 +170,9 @@ router.post('/', requireAuth, (req, res) => {
   const result = stmt.run(uuid, name.trim(), (description || '').trim(), userUuid, is_public !== false ? 1 : 0);
 
   const gallery = db.prepare('SELECT * FROM galleries WHERE id = ?').get(result.lastInsertRowid);
+  db.prepare('INSERT OR IGNORE INTO gallery_collaborators (gallery_id, user_uuid, role) VALUES (?, ?, ?)').run(gallery.id, userUuid, 'owner');
   logGalleryCreate(req, gallery);
-  res.status(201).json({ gallery });
+  res.status(201).json({ gallery: mapGalleryRow(gallery, userUuid) });
 });
 
 router.post('/:uuid/images', requireAuth, (req, res) => {
@@ -139,7 +180,12 @@ router.post('/:uuid/images', requireAuth, (req, res) => {
   const gallery = resolveGallery(req.params.uuid, userUuid, isAdminUser(req));
 
   if (!gallery) return res.status(404).json({ error: '照片夹不存在' });
-  if (!isAdminUser(req) && gallery.creator_uuid !== userUuid) return res.status(403).json({ error: '无权操作此照片夹' });
+  if (!userCanAddRemove(gallery.id, userUuid, isAdminUser(req))) {
+    return res.status(403).json({ error: '无权操作此照片夹' });
+  }
+  if (gallery.is_archived) {
+    return res.status(400).json({ error: '照片夹已归档，无法添加图片' });
+  }
 
   const { image_uuids } = req.body;
   if (!image_uuids || !Array.isArray(image_uuids) || image_uuids.length === 0) {
@@ -173,7 +219,12 @@ router.delete('/:uuid/images', requireAuth, (req, res) => {
   const gallery = resolveGallery(req.params.uuid, userUuid, isAdminUser(req));
 
   if (!gallery) return res.status(404).json({ error: '照片夹不存在' });
-  if (!isAdminUser(req) && gallery.creator_uuid !== userUuid) return res.status(403).json({ error: '无权操作此照片夹' });
+  if (!userCanAddRemove(gallery.id, userUuid, isAdminUser(req))) {
+    return res.status(403).json({ error: '无权操作此照片夹' });
+  }
+  if (gallery.is_archived) {
+    return res.status(400).json({ error: '照片夹已归档，无法移除图片' });
+  }
 
   const { image_uuids } = req.body;
   if (!image_uuids || !Array.isArray(image_uuids) || image_uuids.length === 0) {
@@ -297,9 +348,14 @@ router.get('/:uuid', requireAuth, (req, res) => {
     LIMIT ? OFFSET ?
   `).all(gallery.id, limit, offset);
 
+  const collaborators = db.prepare(
+    'SELECT user_uuid, role FROM gallery_collaborators WHERE gallery_id = ?'
+  ).all(gallery.id);
+
   res.json({
-    gallery,
+    gallery: mapGalleryRow(gallery, userUuid),
     images: imageRows.map(formatImage),
+    collaborators: collaborators.map(c => ({ user_uuid: c.user_uuid, role: c.role })),
     pagination: {
       page,
       limit,
@@ -314,7 +370,9 @@ router.put('/:uuid', requireAuth, (req, res) => {
   const gallery = resolveGallery(req.params.uuid, userUuid, isAdminUser(req));
 
   if (!gallery) return res.status(404).json({ error: '照片夹不存在' });
-  if (!isAdminUser(req) && gallery.creator_uuid !== userUuid) return res.status(403).json({ error: '无权修改此照片夹' });
+  if (!userCanManage(gallery.id, userUuid, isAdminUser(req))) {
+    return res.status(403).json({ error: '无权修改此照片夹' });
+  }
 
   const before = { name: gallery.name, description: gallery.description, is_public: gallery.is_public };
   const { name, description, is_public } = req.body;
@@ -336,7 +394,7 @@ router.put('/:uuid', requireAuth, (req, res) => {
   logGalleryUpdate(req, gallery.uuid, before, {
     name: updated.name, description: updated.description, is_public: updated.is_public,
   });
-  res.json({ gallery: updated });
+  res.json({ gallery: mapGalleryRow(updated, userUuid) });
 });
 
 router.delete('/:uuid', requireAuth, (req, res) => {
@@ -344,11 +402,133 @@ router.delete('/:uuid', requireAuth, (req, res) => {
   const gallery = resolveGallery(req.params.uuid, userUuid, isAdminUser(req));
 
   if (!gallery) return res.status(404).json({ error: '照片夹不存在' });
-  if (!isAdminUser(req) && gallery.creator_uuid !== userUuid) return res.status(403).json({ error: '无权删除此照片夹' });
+  if (!userIsOwner(gallery.id, userUuid, isAdminUser(req))) {
+    return res.status(403).json({ error: '无权删除此照片夹，仅owner可删除' });
+  }
 
   logGalleryDelete(req, gallery.uuid, gallery.name);
   db.prepare('DELETE FROM galleries WHERE id = ?').run(gallery.id);
   res.json({ message: '照片夹已删除' });
+});
+
+router.post('/:uuid/archive', requireAuth, (req, res) => {
+  const userUuid = getUserUuid(req);
+  const gallery = resolveGallery(req.params.uuid, userUuid, isAdminUser(req));
+
+  if (!gallery) return res.status(404).json({ error: '照片夹不存在' });
+  if (!userIsOwner(gallery.id, userUuid, isAdminUser(req))) {
+    return res.status(403).json({ error: '仅owner可归档照片夹' });
+  }
+
+  db.prepare('UPDATE galleries SET is_archived = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(gallery.id);
+  res.json({ message: '照片夹已归档', gallery: mapGalleryRow({ ...gallery, is_archived: 1 }, userUuid) });
+});
+
+router.post('/:uuid/unarchive', requireAuth, (req, res) => {
+  const userUuid = getUserUuid(req);
+  const gallery = resolveGallery(req.params.uuid, userUuid, isAdminUser(req));
+
+  if (!gallery) return res.status(404).json({ error: '照片夹不存在' });
+  if (!userIsOwner(gallery.id, userUuid, isAdminUser(req))) {
+    return res.status(403).json({ error: '仅owner可取消归档' });
+  }
+
+  db.prepare('UPDATE galleries SET is_archived = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(gallery.id);
+  res.json({ message: '已取消归档', gallery: mapGalleryRow({ ...gallery, is_archived: 0 }, userUuid) });
+});
+
+router.post('/:uuid/transfer', requireAuth, (req, res) => {
+  const userUuid = getUserUuid(req);
+  const gallery = resolveGallery(req.params.uuid, userUuid, isAdminUser(req));
+
+  if (!gallery) return res.status(404).json({ error: '照片夹不存在' });
+  if (!userIsOwner(gallery.id, userUuid, isAdminUser(req))) {
+    return res.status(403).json({ error: '仅owner可转移照片夹' });
+  }
+
+  const { target_user_uuid } = req.body || {};
+  if (!target_user_uuid) return res.status(400).json({ error: '请提供目标用户UUID' });
+
+  const targetUser = db.prepare('SELECT uuid FROM users WHERE uuid = ?').get(target_user_uuid);
+  if (!targetUser) return res.status(400).json({ error: '目标用户不存在' });
+  if (targetUser.uuid === userUuid) return res.status(400).json({ error: '不能转移给自己' });
+
+  const useTransaction = db.transaction(() => {
+    db.prepare('UPDATE galleries SET creator_uuid = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(targetUserUuid, gallery.id);
+    db.prepare('DELETE FROM gallery_collaborators WHERE gallery_id = ? AND user_uuid = ?').run(gallery.id, targetUserUuid);
+    db.prepare('INSERT OR REPLACE INTO gallery_collaborators (gallery_id, user_uuid, role) VALUES (?, ?, ?)').run(gallery.id, targetUserUuid, 'owner');
+    db.prepare('DELETE FROM gallery_collaborators WHERE gallery_id = ? AND user_uuid = ?').run(gallery.id, userUuid);
+    db.prepare('INSERT OR REPLACE INTO gallery_collaborators (gallery_id, user_uuid, role) VALUES (?, ?, ?)').run(gallery.id, userUuid, 'user');
+  });
+  useTransaction();
+
+  res.json({ message: '照片夹已转移' });
+});
+
+router.get('/:uuid/collaborators', requireAuth, (req, res) => {
+  const userUuid = getUserUuid(req);
+  const gallery = resolveGallery(req.params.uuid, userUuid, isAdminUser(req));
+
+  if (!gallery) return res.status(404).json({ error: '照片夹不存在' });
+
+  const rows = db.prepare(
+    'SELECT user_uuid, role, added_at FROM gallery_collaborators WHERE gallery_id = ? ORDER BY role, added_at'
+  ).all(gallery.id);
+
+  res.json({ collaborators: rows });
+});
+
+router.post('/:uuid/collaborators', requireAuth, (req, res) => {
+  const userUuid = getUserUuid(req);
+  const gallery = resolveGallery(req.params.uuid, userUuid, isAdminUser(req));
+
+  if (!gallery) return res.status(404).json({ error: '照片夹不存在' });
+  if (!userCanManage(gallery.id, userUuid, isAdminUser(req))) {
+    return res.status(403).json({ error: '无权管理此照片夹的协同用户' });
+  }
+
+  const { user_uuid: targetUuid, role } = req.body || {};
+  if (!targetUuid) return res.status(400).json({ error: '请提供目标用户UUID' });
+  const targetRole = role || 'user';
+  if (!['admin', 'user'].includes(targetRole)) {
+    return res.status(400).json({ error: '角色只能是admin或user' });
+  }
+
+  const targetUser = db.prepare('SELECT uuid FROM users WHERE uuid = ?').get(targetUuid);
+  if (!targetUser) return res.status(400).json({ error: '目标用户不存在' });
+
+  const existing = db.prepare(
+    'SELECT role FROM gallery_collaborators WHERE gallery_id = ? AND user_uuid = ?'
+  ).get(gallery.id, targetUuid);
+
+  if (existing) {
+    if (existing.role === 'owner') return res.status(400).json({ error: '不能修改owner角色' });
+    db.prepare('UPDATE gallery_collaborators SET role = ? WHERE gallery_id = ? AND user_uuid = ?').run(targetRole, gallery.id, targetUuid);
+  } else {
+    db.prepare('INSERT OR IGNORE INTO gallery_collaborators (gallery_id, user_uuid, role) VALUES (?, ?, ?)').run(gallery.id, targetUuid, targetRole);
+  }
+
+  res.json({ message: '协同用户已更新' });
+});
+
+router.delete('/:uuid/collaborators/:collabUuid', requireAuth, (req, res) => {
+  const userUuid = getUserUuid(req);
+  const gallery = resolveGallery(req.params.uuid, userUuid, isAdminUser(req));
+
+  if (!gallery) return res.status(404).json({ error: '照片夹不存在' });
+  if (!userCanManage(gallery.id, userUuid, isAdminUser(req))) {
+    return res.status(403).json({ error: '无权管理此照片夹的协同用户' });
+  }
+
+  const collabUuid = req.params.collabUuid;
+  const collab = db.prepare(
+    'SELECT role FROM gallery_collaborators WHERE gallery_id = ? AND user_uuid = ?'
+  ).get(gallery.id, collabUuid);
+  if (!collab) return res.status(404).json({ error: '协同用户不存在' });
+  if (collab.role === 'owner') return res.status(400).json({ error: '不能移除owner' });
+
+  db.prepare('DELETE FROM gallery_collaborators WHERE gallery_id = ? AND user_uuid = ?').run(gallery.id, collabUuid);
+  res.json({ message: '已移除协同用户' });
 });
 
 router.post('/like', requireAuth, (req, res) => {
@@ -361,23 +541,22 @@ router.post('/like', requireAuth, (req, res) => {
   const imageId = resolveImageId(image_uuid);
   if (!imageId) return res.status(400).json({ error: '图片不存在' });
 
-  let defaultGalleryUuid = db.prepare(
+  const defaultGalleryUuid = db.prepare(
     'SELECT default_gallery_uuid FROM users WHERE uuid = ?'
   ).get(userUuid)?.default_gallery_uuid;
 
-  let gallery;
-  if (defaultGalleryUuid) {
-    gallery = db.prepare('SELECT * FROM galleries WHERE uuid = ?').get(defaultGalleryUuid);
+  if (!defaultGalleryUuid) {
+    return res.status(400).json({ error: '请先在设置中选择一个喜欢文件夹', code: 'no_default_gallery' });
   }
 
+  const gallery = db.prepare('SELECT * FROM galleries WHERE uuid = ?').get(defaultGalleryUuid);
   if (!gallery) {
-    const newUuid = uuidv4();
-    db.prepare(
-      'INSERT INTO galleries (uuid, name, description, creator_uuid, is_public) VALUES (?, ?, ?, ?, ?)'
-    ).run(newUuid, '❤️ 喜欢', '默认喜欢文件夹', userUuid, 0);
-    db.prepare('UPDATE users SET default_gallery_uuid = ? WHERE uuid = ?').run(newUuid, userUuid);
-    gallery = db.prepare('SELECT * FROM galleries WHERE uuid = ?').get(newUuid);
-    logGalleryCreate(req, gallery);
+    return res.status(400).json({ error: '喜欢文件夹已被删除，请在设置中重新选择', code: 'no_default_gallery' });
+  }
+
+  const role = getGalleryRole(gallery.id, userUuid);
+  if (!role && !isAdminUser(req)) {
+    return res.status(403).json({ error: '你喜欢文件夹已被删除或不再可访问', code: 'no_default_gallery' });
   }
 
   const existing = db.prepare(

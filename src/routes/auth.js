@@ -350,10 +350,14 @@ router.put('/default-gallery', requireAuth, (req, res) => {
   const { gallery_uuid } = req.body || {};
   if (!gallery_uuid) return res.status(400).json({ error: '请提供照片夹UUID' });
 
-  const gallery = db.prepare(
-    'SELECT * FROM galleries WHERE uuid = ? AND creator_uuid = (SELECT uuid FROM users WHERE id = ?)'
-  ).get(gallery_uuid, userId);
-  if (!gallery) return res.status(400).json({ error: '照片夹不存在或不属于你' });
+  const userUuid = db.prepare('SELECT uuid FROM users WHERE id = ?').get(userId)?.uuid;
+  const gallery = db.prepare('SELECT * FROM galleries WHERE uuid = ?').get(gallery_uuid);
+  if (!gallery) return res.status(400).json({ error: '照片夹不存在' });
+
+  const role = db.prepare(
+    'SELECT role FROM gallery_collaborators WHERE gallery_id = ? AND user_uuid = ?'
+  ).get(gallery.id, userUuid);
+  if (!role && req.user.role !== 'admin') return res.status(400).json({ error: '你无权访问此照片夹' });
 
   db.prepare('UPDATE users SET default_gallery_uuid = ? WHERE id = ?').run(gallery_uuid, userId);
   res.json({ message: '默认照片夹已更新', gallery_uuid });

@@ -185,6 +185,31 @@ db.exec(`
 
 try { db.exec('CREATE INDEX IF NOT EXISTS idx_gallery_images_image ON gallery_images(image_id)'); } catch { /* already exists */ }
 
+try { db.exec('ALTER TABLE galleries ADD COLUMN is_archived INTEGER DEFAULT 0'); } catch { /* already exists */ }
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS gallery_collaborators (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    gallery_id INTEGER NOT NULL,
+    user_uuid TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'user' CHECK(role IN ('owner','admin','user')),
+    added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(gallery_id, user_uuid),
+    FOREIGN KEY (gallery_id) REFERENCES galleries(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_uuid) REFERENCES users(uuid) ON DELETE CASCADE
+  )
+`);
+
+try {
+  const uncollaborated = db.prepare(`
+    SELECT g.id, g.creator_uuid FROM galleries g
+    WHERE NOT EXISTS (SELECT 1 FROM gallery_collaborators gc WHERE gc.gallery_id = g.id AND gc.role = 'owner')
+  `).all();
+  for (const g of uncollaborated) {
+    db.prepare('INSERT OR IGNORE INTO gallery_collaborators (gallery_id, user_uuid, role) VALUES (?, ?, ?)').run(g.id, g.creator_uuid, 'owner');
+  }
+} catch { /* ignore */ }
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS temp_auth_codes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
