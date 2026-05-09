@@ -40,7 +40,17 @@ jobs:
             # 优先使用最新的正式 release（通过 GitHub API），如果失败则使用最新标签
             BASE_TAG=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
               "https://api.github.com/repos/${{ github.repository }}/releases/latest" \
-              | jq -r '.tag_name' 2>/dev/null || git tag -l --sort=-creatordate | head -n 1)
+              | jq -r '.tag_name' 2>/dev/null)
+            
+            # 如果 GitHub API 返回 null 或失败，尝试获取最新标签
+            if [ "$BASE_TAG" = "null" ] || [ -z "$BASE_TAG" ]; then
+              BASE_TAG=$(git tag -l --sort=-creatordate | head -n 1)
+            fi
+            
+            # 如果还是没有标签，设置为空字符串
+            if [ "$BASE_TAG" = "null" ]; then
+              BASE_TAG=""
+            fi
           fi
           
           echo "base_tag=$BASE_TAG" >> $GITHUB_OUTPUT

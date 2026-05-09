@@ -68,7 +68,7 @@ function getNextLetter(existingTags, weekPrefix) {
   if (!lastLetter) return 'a';
 
   const charCode = lastLetter.charCodeAt(0);
-  if (charCode >= 122) { // 'z'
+  if (charCode >= 122) {
     throw new Error('已达到本周最大快照数量 (z)');
   }
 
@@ -94,10 +94,8 @@ function generateNextSnapshotVersion() {
  * 逻辑：获取最新发布的任何类型的 tag（无论是 Pre Release、Release 还是每周快照）
  */
 function getBaseTag() {
-  // 获取所有标签，按创建时间倒序排列
   const allTags = callCommand('git tag -l --sort=-creatordate').split('\n').filter(Boolean);
   
-  // 返回最新的标签（如果有）
   if (allTags.length > 0) {
     return allTags[0];
   }
@@ -106,24 +104,10 @@ function getBaseTag() {
 }
 
 /**
- * 获取本周之前的最后一个周快照标签
- * 用于计算本周第一个快照的基础标签
- */
-function getLastWeeklySnapshot() {
-  try {
-    const weeklyTags = getWeeklySnapshotTags();
-    return weeklyTags.length > 0 ? weeklyTags[weeklyTags.length - 1] : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
  * 主函数
  */
 function main() {
   try {
-    // 如果只需要获取基础标签
     if (process.argv.includes('--get-base-tag')) {
       const baseTag = getBaseTag();
       console.log(baseTag || '');
@@ -135,7 +119,6 @@ function main() {
 
     console.log(nextVersion);
 
-    // 如果需要更详细的输出
     if (process.argv.includes('--verbose')) {
       const yearSuffix = getYearSuffix();
       const weekNum = getWeekNumber();
@@ -150,7 +133,6 @@ function main() {
   }
 }
 
-// 导出函数供其他模块使用
 export {
   getYearSuffix,
   getWeekNumber,
@@ -161,7 +143,6 @@ export {
   getBaseTag,
 };
 
-// 检查是否直接运行此脚本
 const isDirectRun = process.argv[1] === fileURLToPath(import.meta.url);
 if (isDirectRun) {
   main();
