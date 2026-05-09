@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import db from '../config/database.js';
 import appConfig from '../config/app.js';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, isAdminRole } from '../middleware/auth.js';
 import { generateSignedUrl } from '../utils/signing.js';
 import { streamZipDownload } from '../utils/zip-stream.js';
 import {
@@ -21,7 +21,7 @@ function getUserUuid(req) {
 }
 
 function isAdminUser(req) {
-  return req.user?.role === 'admin';
+  return isAdminRole(req.user?.role);
 }
 
 function resolveImageId(target) {

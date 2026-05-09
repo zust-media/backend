@@ -26,18 +26,16 @@ const router = Router();
  *     tags: [Auth]
  *     summary: 用户注册
  *     description: >
- *       注册新用户。
- *       **首个注册用户（系统中尚无任何用户时）将自动成为超级管理员，无需 regToken。**
- *       后续用户注册必须先通过 `/api/auth/captcha/generate` 获取图形验证码，
- *       再通过 `/api/auth/captcha/verify` 验证后获取 regToken。
+ *       注册新用户。**必须先通过 `/api/auth/captcha/generate` 获取图形验证码，再通过 `/api/auth/captcha/verify` 验证后获取 regToken。**
  *       用户名 3-30 个字符，仅支持字母数字和下划线，密码至少 6 个字符。
+ *       系统中尚无用户时，首位注册者将自动成为超级管理员。
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
  *           schema:
  *             type: object
- *             required: [username, password]
+ *             required: [username, password, regToken]
  *             properties:
  *               username:
  *                 type: string
@@ -48,7 +46,7 @@ const router = Router();
  *                 description: 密码（至少6个字符）
  *               regToken:
  *                 type: string
- *                 description: 通过 `/api/auth/captcha/verify` 获取的一次性注册令牌，有效期 15 分钟。首位用户可以不传。
+ *                 description: 通过 `/api/auth/captcha/verify` 获取的一次性注册令牌，有效期 15 分钟
  *     responses:
  *       201:
  *         description: 注册成功
@@ -62,7 +60,7 @@ const router = Router();
  *                   example: 超级管理员注册成功
  *                 role:
  *                   type: string
- *                   description: 注册用户的角色（admin 或 user）
+ *                   description: 注册用户的角色（super_admin 或 user）
  *       400:
  *         description: 参数错误（用户名格式、密码长度、关键字屏蔽等）
  *         content:
@@ -70,7 +68,7 @@ const router = Router();
  *             schema:
  *               $ref: '#/components/schemas/ApiError'
  *       401:
- *         description: regToken 缺失、无效、已过期或已被使用（首位用户除外）
+ *         description: regToken 缺失、无效、已过期或已被使用
  *         content:
  *           application/json:
  *             schema:
@@ -79,28 +77,23 @@ const router = Router();
 router.post('/register', (req, res) => {
   const { username, password, regToken } = req.body;
 
-  const existingCount = db.prepare('SELECT COUNT(*) as cnt FROM users').get().cnt;
-  const isFirstUser = existingCount === 0;
+  if (!regToken) {
+    return res.status(401).json({ error: '未经授权的请求' });
+  }
 
-  if (!isFirstUser) {
-    if (!regToken) {
+  let jti;
+  try {
+    const decoded = jwt.verify(regToken, CAPTCHA_JWT_SECRET);
+    if (decoded.purpose !== 'registration') {
       return res.status(401).json({ error: '未经授权的请求' });
     }
+    jti = decoded.jti;
+  } catch {
+    return res.status(401).json({ error: '未经授权的请求' });
+  }
 
-    let jti;
-    try {
-      const decoded = jwt.verify(regToken, CAPTCHA_JWT_SECRET);
-      if (decoded.purpose !== 'registration') {
-        return res.status(401).json({ error: '未经授权的请求' });
-      }
-      jti = decoded.jti;
-    } catch {
-      return res.status(401).json({ error: '未经授权的请求' });
-    }
-
-    if (!consumeRegToken(jti)) {
-      return res.status(401).json({ error: '未经授权的请求' });
-    }
+  if (!consumeRegToken(jti)) {
+    return res.status(401).json({ error: '未经授权的请求' });
   }
 
   const name = (username || '').trim();
@@ -122,11 +115,35 @@ router.post('/register', (req, res) => {
     return res.status(400).json({ error: '用户名已存在' });
   }
 
-  const role = isFirstUser ? 'admin' : 'user';
+  const role = db.prepare('SELECT COUNT(*) as cnt FROM users').get().cnt === 0 ? 'super_admin' : 'user';
   const hashed = bcrypt.hashSync(password, 10);
   db.prepare('INSERT INTO users (username, password, role, uuid) VALUES (?, ?, ?, ?)').run(name, hashed, role, crypto.randomUUID());
 
-  res.status(201).json({ message: isFirstUser ? '超级管理员注册成功' : '注册成功', role });
+  res.status(201).json({ message: role === 'super_admin' ? '超级管理员注册成功' : '注册成功', role });
+});
+
+/**
+ * @swagger
+ * /api/auth/has-super-admin:
+ *   get:
+ *     tags: [Auth]
+ *     summary: 检查超级管理员是否存在
+ *     description: 返回系统中是否已有超级管理员账户，用于前端判断是否需要跳转注册页
+ *     responses:
+ *       200:
+ *         description: 检查结果
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 has_super_admin:
+ *                   type: boolean
+ *                   description: 是否已有超级管理员
+ */
+router.get('/has-super-admin', (_req, res) => {
+  const row = db.prepare("SELECT COUNT(*) as cnt FROM users WHERE role = 'super_admin'").get();
+  res.json({ has_super_admin: row.cnt > 0 });
 });
 
 /**

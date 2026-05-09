@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import db from '../config/database.js';
 import { validateNotBlocked } from '../config/blocked-keywords.js';
-import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import { requireAuth, requireAdmin, isAdminRole } from '../middleware/auth.js';
 import { logCategoryCreate, logCategoryUpdate, logCategoryDelete } from '../utils/logger.js';
 import { generateSignedUrl } from '../utils/signing.js';
 import appConfig from '../config/app.js';
@@ -178,7 +178,7 @@ router.get('/:id', (req, res) => {
   const totalPages = Math.ceil(total / limit) || 1;
 
   let images;
-  if (req.user && req.user.role === 'admin') {
+  if (req.user && isAdminRole(req.user.role)) {
     images = db.prepare(`
       SELECT i.*, u.uuid as uploader_uuid
       FROM images i JOIN users u ON i.user_id = u.id

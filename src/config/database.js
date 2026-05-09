@@ -18,7 +18,7 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT UNIQUE NOT NULL,
     password TEXT NOT NULL,
-    role TEXT NOT NULL DEFAULT 'user' CHECK(role IN ('admin', 'user')),
+    role TEXT NOT NULL DEFAULT 'user' CHECK(role IN ('admin', 'super_admin', 'user')),
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )
 `);
@@ -93,6 +93,40 @@ try { db.exec('ALTER TABLE users ADD COLUMN slug TEXT'); } catch { /* already ex
 try { db.exec('ALTER TABLE users ADD COLUMN bio TEXT DEFAULT \'\''); } catch { /* already exists */ }
 try { db.exec('ALTER TABLE users ADD COLUMN nickname TEXT DEFAULT \'\''); } catch { /* already exists */ }
 try { db.exec('ALTER TABLE users ADD COLUMN default_gallery_uuid TEXT DEFAULT NULL'); } catch { /* already exists */ }
+
+// Migration: update role CHECK constraint to include 'super_admin'
+{
+  const tableInfo = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'").get();
+  if (tableInfo && !tableInfo.sql.includes("'super_admin'")) {
+    db.exec('PRAGMA foreign_keys = OFF');
+    db.exec('BEGIN TRANSACTION');
+    try {
+      db.exec(`
+        CREATE TABLE users_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          username TEXT UNIQUE NOT NULL,
+          password TEXT NOT NULL,
+          role TEXT NOT NULL DEFAULT 'user' CHECK(role IN ('admin', 'super_admin', 'user')),
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          uuid TEXT,
+          slug TEXT,
+          bio TEXT DEFAULT '',
+          nickname TEXT DEFAULT '',
+          default_gallery_uuid TEXT DEFAULT NULL
+        )
+      `);
+      db.exec('INSERT INTO users_new SELECT * FROM users');
+      db.exec('DROP TABLE users');
+      db.exec('ALTER TABLE users_new RENAME TO users');
+      db.exec('COMMIT');
+    } catch {
+      try { db.exec('ROLLBACK'); } catch {}
+      try { db.exec('DROP TABLE IF EXISTS users_new'); } catch {}
+    } finally {
+      db.exec('PRAGMA foreign_keys = ON');
+    }
+  }
+}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS categories (

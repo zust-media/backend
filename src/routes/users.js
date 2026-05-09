@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import db from '../config/database.js';
 import { validateNotBlocked } from '../config/blocked-keywords.js';
 import { generateSignedUrl } from '../utils/signing.js';
-import { requireAdmin } from '../middleware/auth.js';
+import { requireAdmin, isAdminRole } from '../middleware/auth.js';
 import { logUserCreate, logUserUpdate, logUserDelete } from '../utils/logger.js';
 import appConfig from '../config/app.js';
 import { existsSync, unlinkSync } from 'fs';
@@ -182,7 +182,7 @@ router.get('/list', requireAdmin, (_req, res) => {
  *                 description: 昵称
  *               role:
  *                 type: string
- *                 enum: [admin, user]
+ *                 enum: [admin, super_admin, user]
  *                 default: user
  *                 description: 角色
  *     responses:
@@ -239,7 +239,7 @@ router.post('/create', requireAdmin, (req, res) => {
   const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(name);
   if (existing) return res.status(400).json({ error: '用户名已存在' });
 
-  const userRole = role === 'admin' ? 'admin' : 'user';
+  const userRole = role === 'admin' || role === 'super_admin' ? role : 'user';
   const userNickname = (nickname || '').trim();
   const hashed = bcrypt.hashSync(password, 10);
   const uuid = crypto.randomUUID();
@@ -269,18 +269,18 @@ router.post('/create', requireAdmin, (req, res) => {
 
 /**
  * @swagger
- * /api/users/{id}:
+ * /api/users/{uuid}:
  *   put:
  *     tags: [Users]
  *     summary: 更新用户（管理员）
- *     description: 管理员修改指定用户的信息（用户名、密码、昵称、角色等）
+ *     description: 管理员修改指定用户的信息（用户名、密码、昵称、角色等），通过用户UUID定位
  *     security: [{ bearerAuth: [] }]
  *     parameters:
  *       - in: path
- *         name: id
+ *         name: uuid
  *         required: true
- *         schema: { type: integer }
- *         description: 用户ID
+ *         schema: { type: string }
+ *         description: 用户UUID
  *     requestBody:
  *       required: true
  *       content:
@@ -300,7 +300,7 @@ router.post('/create', requireAdmin, (req, res) => {
  *                 description: 新的昵称
  *               role:
  *                 type: string
- *                 enum: [admin, user]
+ *                 enum: [admin, super_admin, user]
  *                 description: 新的角色
  *     responses:
  *       200:
@@ -338,12 +338,13 @@ router.post('/create', requireAdmin, (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/ApiError'
  */
-router.put('/:id', requireAdmin, (req, res) => {
-  const id = parseInt(req.params.id);
-  if (!id) return res.status(400).json({ error: '无效的用户ID' });
+router.put('/:uuid', requireAdmin, (req, res) => {
+  const uuid = (req.params.uuid || '').trim();
+  if (!uuid) return res.status(400).json({ error: '无效的用户UUID' });
 
-  const existing = db.prepare('SELECT id, username, nickname, role, uuid, slug FROM users WHERE id = ?').get(id);
+  const existing = db.prepare('SELECT id, username, nickname, role, uuid, slug FROM users WHERE uuid = ?').get(uuid);
   if (!existing) return res.status(404).json({ error: '用户不存在' });
+  const id = existing.id;
 
   const { username, password, nickname, role, slug } = req.body || {};
 
@@ -382,7 +383,7 @@ router.put('/:id', requireAdmin, (req, res) => {
   }
 
   if (role !== undefined) {
-    if (!['admin', 'user'].includes(role)) return res.status(400).json({ error: '无效的角色' });
+    if (!['admin', 'super_admin', 'user'].includes(role)) return res.status(400).json({ error: '无效的角色' });
     updates.push('role = ?');
     params.push(role);
   }
@@ -421,18 +422,18 @@ router.put('/:id', requireAdmin, (req, res) => {
 
 /**
  * @swagger
- * /api/users/{id}:
+ * /api/users/{uuid}:
  *   delete:
  *     tags: [Users]
  *     summary: 删除用户（管理员）
- *     description: 删除指定用户及其上传的所有图片。**超级管理员（id=1）不可删除**，其他管理员账户可正常删除。
+ *     description: 删除指定用户及其上传的所有图片。**超级管理员（role=super_admin）不可删除**，其他管理员账户可正常删除。通过用户UUID定位。
  *     security: [{ bearerAuth: [] }]
  *     parameters:
  *       - in: path
- *         name: id
+ *         name: uuid
  *         required: true
- *         schema: { type: integer }
- *         description: 用户ID
+ *         schema: { type: string }
+ *         description: 用户UUID
  *     responses:
  *       200:
  *         description: 用户已删除
@@ -465,23 +466,23 @@ router.put('/:id', requireAdmin, (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/ApiError'
  */
-router.delete('/:id', requireAdmin, (req, res) => {
-  const id = parseInt(req.params.id);
-  if (!id) return res.status(400).json({ error: '无效的用户ID' });
+router.delete('/:uuid', requireAdmin, (req, res) => {
+  const uuid = (req.params.uuid || '').trim();
+  if (!uuid) return res.status(400).json({ error: '无效的用户UUID' });
 
-  const user = db.prepare('SELECT id, uuid, username, role FROM users WHERE id = ?').get(id);
+  const user = db.prepare('SELECT id, uuid, username, role FROM users WHERE uuid = ?').get(uuid);
   if (!user) return res.status(404).json({ error: '用户不存在' });
-  if (id === 1) return res.status(400).json({ error: '不能删除超级管理员账户' });
+  if (user.role === 'super_admin') return res.status(400).json({ error: '不能删除超级管理员账户' });
 
-  const images = db.prepare('SELECT filename FROM images WHERE user_id = ?').all(id);
+  const images = db.prepare('SELECT filename FROM images WHERE user_id = ?').all(user.id);
   for (const img of images) {
     const fp = join(uploadsDir, img.filename);
     if (existsSync(fp)) unlinkSync(fp);
   }
 
-  db.prepare('DELETE FROM image_tags WHERE image_id IN (SELECT id FROM images WHERE user_id = ?)').run(id);
-  db.prepare('DELETE FROM images WHERE user_id = ?').run(id);
-  db.prepare('DELETE FROM users WHERE id = ?').run(id);
+  db.prepare('DELETE FROM image_tags WHERE image_id IN (SELECT id FROM images WHERE user_id = ?)').run(user.id);
+  db.prepare('DELETE FROM images WHERE user_id = ?').run(user.id);
+  db.prepare('DELETE FROM users WHERE id = ?').run(user.id);
 
   res.json({ message: '用户已删除' });
   logUserDelete(req, user);
@@ -581,7 +582,7 @@ router.get('/:uuid', (req, res) => {
 
   let images;
   const isSelf = req.user && req.user.uuid === user.uuid;
-  const isAdmin = req.user && req.user.role === 'admin';
+  const isAdmin = req.user && isAdminRole(req.user.role);
   if (isSelf || isAdmin) {
     images = db.prepare(`
       SELECT i.*, u.uuid as uploader_uuid

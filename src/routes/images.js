@@ -10,8 +10,7 @@ import exifr from 'exifr';
 import sharp from 'sharp';
 import db from '../config/database.js';
 import appConfig from '../config/app.js';
-import { requireAuth } from '../middleware/auth.js';
-import { requireAdminOrTempAuth } from '../middleware/auth.js';
+import { requireAuth, requireAdminOrTempAuth, isAdminRole } from '../middleware/auth.js';
 import { generateSignedUrl } from '../utils/signing.js';
 import { logImageUpload, logImageDelete, logImageEdit, logBatchImageDelete, logBatchImageUpdate } from '../utils/logger.js';
 import { streamZipDownload } from '../utils/zip-stream.js';
@@ -58,6 +57,13 @@ function getImageTags(imageId) {
     WHERE it.image_id = ?
   `).all(imageId);
   return rows.map(r => r.id);
+}
+
+function resolveImageId(target) {
+  const byUuid = db.prepare('SELECT id FROM images WHERE uuid = ?').get(target);
+  if (byUuid) return byUuid.id;
+  const byId = db.prepare('SELECT id FROM images WHERE id = ?').get(parseInt(target));
+  return byId ? byId.id : null;
 }
 
 async function extractExif(filePath, mimeType) {
@@ -350,10 +356,10 @@ router.post('/upload', requireAuth, (req, res) => {
  *     security: [{ bearerAuth: [] }]
  *     parameters:
  *       - in: query
- *         name: ids
+ *         name: uuids
  *         required: true
  *         schema: { type: string }
- *         description: 逗号分隔的图片ID列表，如 "1,2,3"
+ *         description: 逗号分隔的图片UUID列表，如 "uuid1,uuid2,uuid3"
  *     responses:
  *       200:
  *         description: 公共分类和标签交集/并集
@@ -392,16 +398,23 @@ router.post('/upload', requireAuth, (req, res) => {
  *               $ref: '#/components/schemas/ApiError'
  */
 router.get('/batch-info', requireAuth, (req, res) => {
-  const raw = (req.query.ids || '').trim();
-  if (!raw) return res.status(400).json({ error: '请提供图片ID列表' });
+  const raw = (req.query.uuids || req.query.ids || '').trim();
+  if (!raw) return res.status(400).json({ error: '请提供图片UUID列表' });
 
-  const ids = raw.split(',').map((s) => parseInt(s.trim())).filter((n) => n > 0);
-  if (ids.length === 0) return res.status(400).json({ error: '无效的图片ID列表' });
+  const targets = raw.split(',').map((s) => s.trim()).filter(Boolean);
+  if (targets.length === 0) return res.status(400).json({ error: '无效的图片UUID列表' });
+
+  const ids = [];
+  for (const target of targets) {
+    const resolved = resolveImageId(target);
+    if (resolved) ids.push(resolved);
+  }
+  if (ids.length === 0) return res.status(400).json({ error: '没有找到有效的图片' });
 
   const placeholders = ids.map(() => '?').join(',');
   const images = db.prepare(`SELECT id, user_id, category_id FROM images WHERE id IN (${placeholders})`).all(...ids);
 
-  const isAdmin = req.user.role === 'admin';
+  const isAdmin = isAdminRole(req.user.role);
   const forbidden = images.filter((img) => !isAdmin && img.user_id !== req.user.user_id);
   if (forbidden.length > 0) {
     return res.status(403).json({ error: `无权限查看 ${forbidden.length} 张图片` });
@@ -680,7 +693,7 @@ router.get('/list', (req, res) => {
     params.push(categoryId);
   }
 
-  if (!req.user || req.user.role !== 'admin') {
+  if (!req.user || !isAdminRole(req.user.role)) {
     if (req.user) {
       conditions.push('(i.is_public = 1 OR u.uuid = ?)');
       params.push(req.user.uuid);
@@ -749,17 +762,17 @@ router.get('/list', (req, res) => {
 
 /**
  * @swagger
- * /api/images/detail/{id}:
+ * /api/images/detail/{uuid}:
  *   get:
  *     tags: [Images]
  *     summary: 图片详情
- *     description: 根据图片ID获取图片详细信息，包括标签、EXIF和缩略图URL
+ *     description: 根据图片UUID获取图片详细信息，包括标签、EXIF和缩略图URL
  *     parameters:
  *       - in: path
- *         name: id
+ *         name: uuid
  *         required: true
- *         schema: { type: integer }
- *         description: 图片ID
+ *         schema: { type: string }
+ *         description: 图片UUID
  *     responses:
  *       200:
  *         description: 图片详情
@@ -768,7 +781,7 @@ router.get('/list', (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/Image'
  *       400:
- *         description: 无效的图片ID
+ *         description: 无效的图片UUID
  *         content:
  *           application/json:
  *             schema:
@@ -780,9 +793,9 @@ router.get('/list', (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/ApiError'
  */
-router.get('/detail/:id', (req, res) => {
-  const id = parseInt(req.params.id);
-  if (!id) return res.status(400).json({ error: '无效的图片ID' });
+router.get('/detail/:uuid', (req, res) => {
+  const id = resolveImageId(req.params.uuid);
+  if (!id) return res.status(400).json({ error: '无效的图片UUID' });
 
   const row = db.prepare(`
     SELECT i.*, u.uuid as uploader_uuid
@@ -940,7 +953,7 @@ router.post('/sign-url', requireAdminOrTempAuth, (req, res) => {
 
 /**
  * @swagger
- * /api/images/detail/{id}:
+ * /api/images/detail/{uuid}:
  *   put:
  *     tags: [Images]
  *     summary: 更新图片详情
@@ -948,10 +961,10 @@ router.post('/sign-url', requireAdminOrTempAuth, (req, res) => {
  *     security: [{ bearerAuth: [] }]
  *     parameters:
  *       - in: path
- *         name: id
+ *         name: uuid
  *         required: true
- *         schema: { type: integer }
- *         description: 图片ID
+ *         schema: { type: string }
+ *         description: 图片UUID
  *     requestBody:
  *       required: true
  *       content:
@@ -973,6 +986,10 @@ router.post('/sign-url', requireAdminOrTempAuth, (req, res) => {
  *                 type: integer
  *                 nullable: true
  *                 description: 分类ID
+ *               is_public:
+ *                 type: integer
+ *                 enum: [0, 1]
+ *                 description: 是否公开
  *     responses:
  *       200:
  *         description: 更新成功
@@ -981,7 +998,7 @@ router.post('/sign-url', requireAdminOrTempAuth, (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/ApiMessage'
  *       400:
- *         description: 无效的图片ID
+ *         description: 无效的图片UUID
  *         content:
  *           application/json:
  *             schema:
@@ -999,13 +1016,13 @@ router.post('/sign-url', requireAdminOrTempAuth, (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/ApiError'
  */
-router.put('/detail/:id', requireAuth, (req, res) => {
-  const id = parseInt(req.params.id);
-  if (!id) return res.status(400).json({ error: '无效的图片ID' });
+router.put('/detail/:uuid', requireAuth, (req, res) => {
+  const id = resolveImageId(req.params.uuid);
+  if (!id) return res.status(400).json({ error: '无效的图片UUID' });
 
   const image = db.prepare('SELECT user_id, uuid, title, description, category_id, is_public FROM images WHERE id = ?').get(id);
   if (!image) return res.status(404).json({ error: '图片不存在' });
-  if (req.user.role !== 'admin' && image.user_id !== req.user.user_id) {
+  if (!isAdminRole(req.user.role) && image.user_id !== req.user.user_id) {
     return res.status(403).json({ error: '无权限修改此图片' });
   }
 
@@ -1047,7 +1064,7 @@ router.put('/detail/:id', requireAuth, (req, res) => {
 
 /**
  * @swagger
- * /api/images/delete/{id}:
+ * /api/images/delete/{uuid}:
  *   delete:
  *     tags: [Images]
  *     summary: 删除单张图片
@@ -1055,10 +1072,10 @@ router.put('/detail/:id', requireAuth, (req, res) => {
  *     security: [{ bearerAuth: [] }]
  *     parameters:
  *       - in: path
- *         name: id
+ *         name: uuid
  *         required: true
- *         schema: { type: integer }
- *         description: 图片ID
+ *         schema: { type: string }
+ *         description: 图片UUID
  *     responses:
  *       200:
  *         description: 删除成功
@@ -1067,7 +1084,7 @@ router.put('/detail/:id', requireAuth, (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/ApiMessage'
  *       400:
- *         description: 无效的图片ID
+ *         description: 无效的图片UUID
  *         content:
  *           application/json:
  *             schema:
@@ -1085,13 +1102,13 @@ router.put('/detail/:id', requireAuth, (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/ApiError'
  */
-router.delete('/delete/:id', requireAuth, (req, res) => {
-  const id = parseInt(req.params.id);
-  if (!id) return res.status(400).json({ error: '无效的图片ID' });
+router.delete('/delete/:uuid', requireAuth, (req, res) => {
+  const id = resolveImageId(req.params.uuid);
+  if (!id) return res.status(400).json({ error: '无效的图片UUID' });
 
   const image = db.prepare('SELECT user_id, uuid, filename, original_name, file_size, title FROM images WHERE id = ?').get(id);
   if (!image) return res.status(404).json({ error: '图片不存在' });
-  if (req.user.role !== 'admin' && image.user_id !== req.user.user_id) {
+  if (!isAdminRole(req.user.role) && image.user_id !== req.user.user_id) {
     return res.status(403).json({ error: '无权限删除此图片' });
   }
 
@@ -1120,12 +1137,12 @@ router.delete('/delete/:id', requireAuth, (req, res) => {
  *         application/json:
  *           schema:
  *             type: object
- *             required: [ids]
+ *             required: [image_uuids]
  *             properties:
- *               ids:
+ *               image_uuids:
  *                 type: array
- *                 items: { type: integer }
- *                 description: 图片ID列表
+ *                 items: { type: string }
+ *                 description: 图片UUID列表
  *     responses:
  *       200:
  *         description: 删除结果
@@ -1151,15 +1168,23 @@ router.delete('/delete/:id', requireAuth, (req, res) => {
  *               $ref: '#/components/schemas/ApiError'
  */
 router.post('/batch-delete', requireAuth, (req, res) => {
-  const { ids } = req.body || {};
-  if (!Array.isArray(ids) || ids.length === 0) {
-    return res.status(400).json({ error: '请提供要删除的图片ID列表' });
+  const { image_uuids } = req.body || {};
+  if (!Array.isArray(image_uuids) || image_uuids.length === 0) {
+    return res.status(400).json({ error: '请提供要删除的图片UUID列表' });
   }
+
+  const ids = [];
+  for (const target of image_uuids) {
+    const resolved = resolveImageId(target);
+    if (resolved) ids.push(resolved);
+  }
+
+  if (ids.length === 0) return res.status(400).json({ error: '没有找到有效的图片' });
 
   const placeholders = ids.map(() => '?').join(',');
   const images = db.prepare(`SELECT id, uuid, user_id, filename FROM images WHERE id IN (${placeholders})`).all(...ids);
 
-  const isAdmin = req.user.role === 'admin';
+  const isAdmin = isAdminRole(req.user.role);
   const forbidden = images.filter((img) => !isAdmin && img.user_id !== req.user.user_id);
   if (forbidden.length > 0) {
     return res.status(403).json({ error: `无权限删除 ${forbidden.length} 张图片` });
@@ -1173,7 +1198,7 @@ router.post('/batch-delete', requireAuth, (req, res) => {
   }
 
   db.prepare(`DELETE FROM images WHERE id IN (${placeholders})`).run(...ids);
-  const failed = ids.length - images.length;
+  const failed = image_uuids.length - images.length;
   res.json({
     message: `成功删除 ${images.length} 张图片` + (failed > 0 ? `，${failed} 张不存在` : ''),
     deleted: images.length,
@@ -1197,12 +1222,12 @@ router.post('/batch-delete', requireAuth, (req, res) => {
  *         application/json:
  *           schema:
  *             type: object
- *             required: [ids]
+ *             required: [image_uuids]
  *             properties:
- *               ids:
+ *               image_uuids:
  *                 type: array
- *                 items: { type: integer }
- *                 description: 图片ID列表
+ *                 items: { type: string }
+ *                 description: 图片UUID列表
  *               category_id:
  *                 type: integer
  *                 nullable: true
@@ -1244,15 +1269,23 @@ router.post('/batch-delete', requireAuth, (req, res) => {
  *               $ref: '#/components/schemas/ApiError'
  */
 router.post('/batch-update', requireAuth, (req, res) => {
-  const { ids, category_id, tags, add_tags, remove_tags, is_public } = req.body || {};
-  if (!Array.isArray(ids) || ids.length === 0) {
-    return res.status(400).json({ error: '请提供要更新的图片ID列表' });
+  const { image_uuids, category_id, tags, add_tags, remove_tags, is_public } = req.body || {};
+  if (!Array.isArray(image_uuids) || image_uuids.length === 0) {
+    return res.status(400).json({ error: '请提供要更新的图片UUID列表' });
   }
+
+  const ids = [];
+  for (const target of image_uuids) {
+    const resolved = resolveImageId(target);
+    if (resolved) ids.push(resolved);
+  }
+
+  if (ids.length === 0) return res.status(400).json({ error: '没有找到有效的图片' });
 
   const placeholders = ids.map(() => '?').join(',');
   const images = db.prepare(`SELECT id, uuid, user_id FROM images WHERE id IN (${placeholders})`).all(...ids);
 
-  const isAdmin = req.user.role === 'admin';
+  const isAdmin = isAdminRole(req.user.role);
   const forbidden = images.filter((img) => !isAdmin && img.user_id !== req.user.user_id);
   if (forbidden.length > 0) {
     return res.status(403).json({ error: `无权限修改 ${forbidden.length} 张图片` });

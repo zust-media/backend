@@ -88,5 +88,5 @@ app.use((err, _req, res, _next) => {
 
 app.listen(PORT, () => {
   console.log(`ZustMedia API 服务器已启动: http://localhost:${PORT}`);
-  console.log('首次使用请注册，第一位注册的用户将自动成为超级管理员');
+  console.log('首次使用请注册（需验证码），第一位注册的用户将自动成为超级管理员，角色为 super_admin');
 });

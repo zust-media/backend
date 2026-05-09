@@ -38,11 +38,15 @@ export function requireAuth(req, res, next) {
   next();
 }
 
+export function isAdminRole(role) {
+  return role === 'admin' || role === 'super_admin';
+}
+
 export function requireAdmin(req, res, next) {
   if (!req.user) {
     return res.status(401).json({ error: '未登录或登录已过期' });
   }
-  if (req.user.role !== 'admin') {
+  if (!isAdminRole(req.user.role)) {
     return res.status(403).json({ error: '权限不足，仅管理员可操作' });
   }
   next();
@@ -67,7 +71,7 @@ export function requireAdminOrTempAuth(req, res, next) {
     }
     return res.status(401).json({ error: '未登录或登录已过期' });
   }
-  if (req.user.role !== 'admin') {
+  if (!isAdminRole(req.user.role)) {
     return res.status(403).json({ error: '权限不足，仅管理员可操作' });
   }
   next();
