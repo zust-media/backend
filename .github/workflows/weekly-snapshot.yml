@@ -100,7 +100,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ steps.version.outputs.version }}
-          name: Weekly Snapshot ${{ steps.version.outputs.version }}
+          name: Snapshot ${{ steps.version.outputs.version }}
           body: |
             # 每周快照发布
             
