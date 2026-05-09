@@ -26,16 +26,18 @@ const router = Router();
  *     tags: [Auth]
  *     summary: 用户注册
  *     description: >
- *       注册新用户。**必须先通过 `/api/auth/captcha/generate` 获取图形验证码，再通过 `/api/auth/captcha/verify` 验证后获取 regToken。**
+ *       注册新用户。
+ *       **首个注册用户（系统中尚无任何用户时）将自动成为超级管理员，无需 regToken。**
+ *       后续用户注册必须先通过 `/api/auth/captcha/generate` 获取图形验证码，
+ *       再通过 `/api/auth/captcha/verify` 验证后获取 regToken。
  *       用户名 3-30 个字符，仅支持字母数字和下划线，密码至少 6 个字符。
- *       缺少 regToken 或 regToken 无效/已使用/已过期均返回 401。
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
  *           schema:
  *             type: object
- *             required: [username, password, regToken]
+ *             required: [username, password]
  *             properties:
  *               username:
  *                 type: string
@@ -46,14 +48,21 @@ const router = Router();
  *                 description: 密码（至少6个字符）
  *               regToken:
  *                 type: string
- *                 description: 通过 `/api/auth/captcha/verify` 获取的一次性注册令牌，有效期 15 分钟
+ *                 description: 通过 `/api/auth/captcha/verify` 获取的一次性注册令牌，有效期 15 分钟。首位用户可以不传。
  *     responses:
  *       201:
  *         description: 注册成功
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/ApiMessage'
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: 超级管理员注册成功
+ *                 role:
+ *                   type: string
+ *                   description: 注册用户的角色（admin 或 user）
  *       400:
  *         description: 参数错误（用户名格式、密码长度、关键字屏蔽等）
  *         content:
@@ -61,7 +70,7 @@ const router = Router();
  *             schema:
  *               $ref: '#/components/schemas/ApiError'
  *       401:
- *         description: regToken 缺失、无效、已过期或已被使用
+ *         description: regToken 缺失、无效、已过期或已被使用（首位用户除外）
  *         content:
  *           application/json:
  *             schema:

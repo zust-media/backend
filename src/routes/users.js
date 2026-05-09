@@ -425,7 +425,7 @@ router.put('/:id', requireAdmin, (req, res) => {
  *   delete:
  *     tags: [Users]
  *     summary: 删除用户（管理员）
- *     description: 删除指定用户及其上传的所有图片（管理员账户不可删除）
+ *     description: 删除指定用户及其上传的所有图片。**超级管理员（id=1）不可删除**，其他管理员账户可正常删除。
  *     security: [{ bearerAuth: [] }]
  *     parameters:
  *       - in: path
@@ -441,7 +441,7 @@ router.put('/:id', requireAdmin, (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/ApiMessage'
  *       400:
- *         description: 参数错误或不可删除管理员
+ *         description: 参数错误或不可删除超级管理员
  *         content:
  *           application/json:
  *             schema:
