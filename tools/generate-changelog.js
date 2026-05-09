@@ -245,25 +245,17 @@ function generateMd(classifiedData, tagName, latest, withHash = false) {
       } else if (withHash) {
         line += ` (${item.hash})`;
       }
+      // 添加提交者信息
+      if (item.author && item.author !== 'web-flow') {
+        if (repoUrl) {
+          line += ` @[${item.author}](${repoUrl}/search?q=author:${encodeURIComponent(item.author)})`;
+        } else {
+          line += ` @${item.author}`;
+        }
+      }
       lines.push(line);
     }
 
-    lines.push('');
-  }
-
-  // 添加贡献者列表
-  if (contributors.length > 0) {
-    lines.push('### 👥 贡献者 | Contributors');
-    lines.push('');
-    
-    const contributorLinks = contributors.map(contributor => {
-      if (repoUrl) {
-        return `[@${contributor}](${repoUrl}/contributors)`;
-      }
-      return `@${contributor}`;
-    });
-    
-    lines.push(`感谢以下贡献者的贡献：${contributorLinks.join(', ')}`);
     lines.push('');
   }
 
