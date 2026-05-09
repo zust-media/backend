@@ -165,3 +165,44 @@ export async function serveImage(filename, params = {}) {
     return null;
   }
 }
+
+export async function compressForDownload(filename, options = {}) {
+  const format = options.format || 'jpeg';
+  const quality = options.quality !== undefined ? parseInt(options.quality) : IMG_CONFIG.defaultQuality;
+  const maxWidth = options.max_width !== undefined ? parseInt(options.max_width) || 0 : 2048;
+
+  const uploadsDir = join(__dirname, '..', '..', 'uploads');
+  const filePath = join(uploadsDir, filename);
+
+  if (!existsSync(filePath)) return null;
+
+  try {
+    const meta = await sharp(filePath, { limitInputPixels: false }).metadata();
+
+    if (meta.format === 'svg') {
+      return await sharp(filePath).toBuffer();
+    }
+
+    let pipeline = sharp(filePath, { limitInputPixels: false });
+
+    if (maxWidth > 0 && meta.width > maxWidth) {
+      pipeline = pipeline.resize(maxWidth, null, {
+        withoutEnlargement: true,
+        fit: 'inside',
+      });
+    }
+
+    if (format === 'png') {
+      pipeline = pipeline.png({ quality });
+    } else if (format === 'webp') {
+      pipeline = pipeline.webp({ quality });
+    } else {
+      pipeline = pipeline.jpeg({ quality });
+    }
+
+    return await pipeline.toBuffer();
+  } catch (err) {
+    console.error('Compress for download error:', err.message);
+    return null;
+  }
+}
