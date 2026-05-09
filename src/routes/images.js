@@ -7,6 +7,7 @@ import { createHash } from 'crypto';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import exifr from 'exifr';
+import sharp from 'sharp';
 import db from '../config/database.js';
 import appConfig from '../config/app.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -60,53 +61,60 @@ function getImageTags(imageId) {
 }
 
 async function extractExif(filePath, mimeType) {
-  if (!['image/jpeg', 'image/png', 'image/webp'].includes(mimeType)) return {};
+  const exif = {};
+
   try {
-    const data = await exifr.parse(filePath, {
-      pick: ['Make', 'Model', 'FocalLength', 'FNumber', 'ExposureTime',
-        'ISO', 'DateTimeOriginal', 'Flash', 'GPSLatitude', 'GPSLongitude',
-        'ImageWidth', 'ImageHeight', 'LensModel', 'ExposureCompensation',
-        'Software', 'Orientation', 'ApertureValue', 'ShutterSpeedValue',
-        'WhiteBalance', 'MeteringMode', 'Copyright'],
-    });
-    if (!data) return {};
-    const exif = {};
-    if (data.Make) exif.make = data.Make;
-    if (data.Model) exif.model = data.Model;
-    if (data.LensModel) exif.lens = data.LensModel;
-    if (data.FocalLength) exif.focalLength = typeof data.FocalLength === 'number' ? `${data.FocalLength}mm` : data.FocalLength;
-    if (data.FNumber) exif.aperture = `f/${typeof data.FNumber === 'number' ? data.FNumber.toFixed(1) : data.FNumber}`;
-    if (data.ExposureTime) {
-      const et = data.ExposureTime;
-      exif.shutterSpeed = typeof et === 'number' && et < 1 ? `1/${Math.round(1 / et)}s` : `${et}s`;
+    const meta = await sharp(filePath, { limitInputPixels: false }).metadata();
+    if (meta.width && meta.height) {
+      exif.dimensions = `${meta.width} × ${meta.height}`;
     }
-    if (data.ISO) exif.iso = `ISO ${data.ISO}`;
-    if (data.DateTimeOriginal) exif.dateTaken = data.DateTimeOriginal instanceof Date
-      ? data.DateTimeOriginal.toISOString()
-      : String(data.DateTimeOriginal);
-    if (data.Flash !== undefined) {
-      const flashVal = typeof data.Flash === 'string'
-        ? data.Flash.toLowerCase().includes('fire') || data.Flash.toLowerCase().includes('on')
-        : !!data.Flash;
-      exif.flash = flashVal ? '闪光灯开启' : '未开启';
+  } catch { /* sharp 读取失败，忽略 */ }
+
+  if (['image/jpeg', 'image/png', 'image/webp'].includes(mimeType)) {
+    try {
+      const data = await exifr.parse(filePath, {
+        pick: ['Make', 'Model', 'FocalLength', 'FNumber', 'ExposureTime',
+          'ISO', 'DateTimeOriginal', 'Flash', 'GPSLatitude', 'GPSLongitude',
+          'LensModel', 'ExposureCompensation',
+          'Software', 'Orientation', 'ApertureValue', 'ShutterSpeedValue',
+          'WhiteBalance', 'MeteringMode', 'Copyright'],
+      });
+      if (data) {
+        if (data.Make) exif.make = data.Make;
+        if (data.Model) exif.model = data.Model;
+        if (data.LensModel) exif.lens = data.LensModel;
+        if (data.FocalLength) exif.focalLength = typeof data.FocalLength === 'number' ? `${data.FocalLength}mm` : data.FocalLength;
+        if (data.FNumber) exif.aperture = `f/${typeof data.FNumber === 'number' ? data.FNumber.toFixed(1) : data.FNumber}`;
+        if (data.ExposureTime) {
+          const et = data.ExposureTime;
+          exif.shutterSpeed = typeof et === 'number' && et < 1 ? `1/${Math.round(1 / et)}s` : `${et}s`;
+        }
+        if (data.ISO) exif.iso = `ISO ${data.ISO}`;
+        if (data.DateTimeOriginal) exif.dateTaken = data.DateTimeOriginal instanceof Date
+          ? data.DateTimeOriginal.toISOString()
+          : String(data.DateTimeOriginal);
+        if (data.Flash !== undefined) {
+          const flashVal = typeof data.Flash === 'string'
+            ? data.Flash.toLowerCase().includes('fire') || data.Flash.toLowerCase().includes('on')
+            : !!data.Flash;
+          exif.flash = flashVal ? '闪光灯开启' : '未开启';
+        }
+        if (data.ExposureCompensation !== undefined) {
+          const ec = data.ExposureCompensation;
+          exif.exposureCompensation = typeof ec === 'number' ? (ec >= 0 ? `+${ec.toFixed(1)} EV` : `${ec.toFixed(1)} EV`) : ec;
+        }
+        if (data.GPSLatitude != null && data.GPSLongitude != null) {
+          exif.gps = `${Number(data.GPSLatitude).toFixed(5)}, ${Number(data.GPSLongitude).toFixed(5)}`;
+        }
+        if (data.Software) exif.software = data.Software;
+        if (data.Copyright) exif.copyright = data.Copyright;
+      }
+    } catch (err) {
+      console.error('exifr解析失败:', filePath, err.message);
     }
-    if (data.ExposureCompensation !== undefined) {
-      const ec = data.ExposureCompensation;
-      exif.exposureCompensation = typeof ec === 'number' ? (ec >= 0 ? `+${ec.toFixed(1)} EV` : `${ec.toFixed(1)} EV`) : ec;
-    }
-    if (data.GPSLatitude != null && data.GPSLongitude != null) {
-      exif.gps = `${Number(data.GPSLatitude).toFixed(5)}, ${Number(data.GPSLongitude).toFixed(5)}`;
-    }
-    if (data.ImageWidth && data.ImageHeight) {
-      exif.dimensions = `${data.ImageWidth} × ${data.ImageHeight}`;
-    }
-    if (data.Software) exif.software = data.Software;
-    if (data.Copyright) exif.copyright = data.Copyright;
-    return exif;
-  } catch (err) {
-    console.error('exifr解析失败:', filePath, err.message);
-    return {};
   }
+
+  return exif;
 }
 
 function computeFileHash(filePath) {
